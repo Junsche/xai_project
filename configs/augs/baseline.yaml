@@ -1,0 +1,6 @@
+data:
+  aug: "baseline"     # Crop+HFlip+Normalize
+early_stopping:
+  enabled: true
+wandb:
+  tags: ["baseline","crop+hflip"]

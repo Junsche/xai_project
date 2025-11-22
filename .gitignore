@@ -1,13 +1,37 @@
+# --- Python & Build ---
 __pycache__/
 *.pyc
-.venv/
-.env
-wandb/
-logs/
-outputs/
-checkpoints/
-data/
-.ipynb_checkpoints/
-.DS_Store
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.log
+
+# --- IDE & Editors ---
 .vscode/
 .idea/
+
+# --- Virtual Envs ---
+.venv/
+env/
+venv/
+*.swp
+
+# --- Jupyter & Checkpoints ---
+.ipynb_checkpoints/
+
+# --- Data & Outputs ---
+data/
+datasets/
+runs/
+wandb/
+*.ckpt
+*.pt
+*.pth
+*.tar
+*.gz
+
+# --- OS Files ---
+.DS_Store
+Thumbs.db

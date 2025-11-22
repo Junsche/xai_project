@@ -1,0 +1,40 @@
+seed: 1437
+device: "cuda"
+
+data:
+  batch_size: 128
+  num_workers: 4
+  use_val_split: true
+  val_split_ratio: 0.1
+
+train:
+  epochs: 20
+  lr: 0.1
+  optimizer: "sgd"
+  momentum: 0.9
+  weight_decay: 5e-4
+  exp_id: "C1"
+
+early_stopping:
+  enabled: false          # 默认关闭；Baseline 会单独开启
+  monitor: "val_acc"
+  mode: "max"
+  patience: 5
+  min_delta: 0.001
+
+model:
+  name: "resnet18"
+  num_classes: 10         # 由数据集文件覆盖
+
+log:
+  out_dir: "./runs"
+
+eval:
+  do_ece: true
+  do_cifar_c: false
+  mce_normalize_by: "baseline"   # 后续用基线作参照
+
+wandb:
+  project: "aug-baseline-cnn"
+  group: "TBD"            # 由数据集文件覆盖
+  tags: ["resnet18","sgd","bs128","epochs20","seed1437"]

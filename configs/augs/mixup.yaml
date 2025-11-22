@@ -1,0 +1,3 @@
+data: { aug: "baseline" }          # 图像级仍用 baseline
+train: { mixup_alpha: 0.2 }         # 训练期混合由 trainer 控制
+wandb: { tags: ["mixup"] }
