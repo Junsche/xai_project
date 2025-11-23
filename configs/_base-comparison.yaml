@@ -1,0 +1,41 @@
+# configs/_base-comparison.yaml
+seed: 1437
+device: "cuda"
+
+data:
+  batch_size: 128          # 和 Stage-1 一致
+  num_workers: 4
+  use_val_split: false     # ✅ Stage-2：统一不再切 val，直接用 test 当 eval
+  val_split_ratio: 0.1     # 此时其实不会用到，但保留不碍事
+
+train:
+  epochs: 100              # ✅ Stage-2 训练更久
+  lr: 0.1                  # 占位符，会被 --override train.lr=... 覆盖
+  optimizer: "sgd"
+  momentum: 0.9
+  weight_decay: 5e-4
+  exp_id: "S2_default"     # 占位符，会被 run_comparison 覆盖
+
+early_stopping:            # ✅ 一定要有这个 section，否则 main.py 取键时会报错
+  enabled: false           # Stage-2 全部关掉早停
+  monitor: "val_acc"
+  mode: "max"
+  patience: 5
+  min_delta: 0.001
+
+model:
+  name: "resnet18"         # 由 datasets/*.yaml 里的 num_classes 覆盖类别数
+  num_classes: 10          # 占位符
+
+log:
+  out_dir: "./runs"
+
+eval:
+  do_ece: true
+  do_bal_acc: false        # 默认关闭，医学数据集在 datasets/*.yaml 里单独打开
+  # do_cifar_c: false      # 如果以后需要可以补上
+
+wandb:
+  project: "aug-comparison"
+  group: "TBD"
+  tags: []

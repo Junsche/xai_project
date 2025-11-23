@@ -28,79 +28,128 @@ def _criterion(logits, target):
 @torch.no_grad()
 def evaluate(model, loader, device, do_ece: bool = True, do_bal_acc: bool = False):
     """
-    EN:
-      Evaluate model on a loader.
-      - Always returns accuracy
-      - Optionally returns ECE (do_ece)
-      - Optionally returns balanced accuracy (do_bal_acc), for medical datasets.
-    ZH：
-      在给定的 loader 上评估模型：
-      - 始终返回普通 accuracy
-      - 可选计算 ECE（do_ece）
-      - 可选计算 Balanced Accuracy（do_bal_acc，用于医学数据集）
+    Returns:
+        acc, ece, mce, bal_acc, avg_loss
     """
     model.eval()
-    tot_acc = 0.0
-    tot_ece = 0.0
+    tot_correct = 0
+    tot_loss = 0.0
     tot_n = 0
 
-    # 如果要算 balanced accuracy，需要收集所有 logits 和 labels
-    # If we need balanced accuracy, we must store all logits & labels.
-    all_logits = [] if do_bal_acc else None
-    all_labels = [] if do_bal_acc else None
+    all_logits = []
+    all_labels = []
+
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            y = y.to(device)
+
+            logits = model(x)
+            loss = F.cross_entropy(logits, y)
+
+            preds = logits.argmax(dim=1)
+            correct = (preds == y).sum().item()
+            bs = x.size(0)
+
+            tot_correct += correct
+            tot_loss += loss.item() * bs
+            tot_n += bs
+
+            if do_ece or do_bal_acc:
+                all_logits.append(logits.detach())
+                all_labels.append(y.detach())
+
+    acc = tot_correct / tot_n
+    avg_loss = tot_loss / tot_n
+
+    # default
+    ece = None
+    mce = None
+    bal_acc = None
+
+    if (do_ece or do_bal_acc) and len(all_logits) > 0:
+        logits_cat = torch.cat(all_logits, dim=0)
+        labels_cat = torch.cat(all_labels, dim=0)
+
+        # --- ECE + MCE ---
+        if do_ece:
+            probs = F.softmax(logits_cat, dim=1)
+            confs, preds = probs.max(dim=1)
+            correct = (preds == labels_cat).float()
+
+            ece_tensor = torch.zeros(1, device=device)
+            mce_tensor = torch.zeros(1, device=device)
+
+            n_bins = 15
+            bins = torch.linspace(0, 1, n_bins + 1, device=device)
+
+            for i in range(n_bins):
+                lo, hi = bins[i], bins[i+1]
+                mask = (confs > lo) & (confs <= hi)
+                m = mask.sum()
+
+                if m == 0:
+                    continue
+
+                conf_bin = confs[mask].mean()
+                acc_bin = correct[mask].mean()
+                gap = torch.abs(conf_bin - acc_bin)
+
+                ece_tensor += (m / len(confs)) * gap
+                mce_tensor = torch.max(mce_tensor, gap)
+
+            ece = ece_tensor.item()
+            mce = mce_tensor.item()
+
+        # --- Balanced Accuracy ---
+        if do_bal_acc:
+            _, preds = logits_cat.max(dim=1)
+            from sklearn.metrics import balanced_accuracy_score
+            bal_acc = balanced_accuracy_score(
+                labels_cat.cpu().numpy(),
+                preds.cpu().numpy()
+            )
+
+    return acc, ece, mce, bal_acc, avg_loss
+
+def train_one_epoch(model, loader, optimizer, device, scaler=None, cfg_train=None):
+    model.train()
+    tot_acc = 0.0
+    tot_loss = 0.0
+    tot_n = 0
+
+    use_mixup = cfg_train is not None and "mixup_alpha"  in cfg_train
+    use_cm   = cfg_train is not None and "cutmix_alpha" in cfg_train
 
     for x, y in loader:
         x, y = x.to(device), y.to(device)
-        logits = model(x)
-        bs = x.size(0)
-
-        # 1) 普通 accuracy（跟你原来的代码一样：加权平均）
-        #    Standard accuracy (same as before: weighted average).
-        tot_acc += accuracy(logits, y) * bs
-
-        # 2) ECE 按 batch 加权平均
-        #    ECE as a weighted average over batches.
-        if do_ece:
-            tot_ece += expected_calibration_error(logits, y) * bs
-
-        # 3) 如果启用 balanced accuracy，就先把 logits & labels 存起来
-        #    If we want balanced accuracy, store logits & labels for later.
-        if do_bal_acc:
-            all_logits.append(logits.detach())
-            all_labels.append(y.detach())
-
-        tot_n += bs
-
-    acc = tot_acc / tot_n
-    ece = (tot_ece / tot_n) if do_ece else None
-
-    # 4) 计算 Balanced Accuracy（只在医学数据集时开启）
-    #    Compute balanced accuracy only when requested (e.g., medical datasets).
-    bal_acc = None
-    if do_bal_acc:
-        logits_cat = torch.cat(all_logits, dim=0)
-        labels_cat = torch.cat(all_labels, dim=0)
-        _, preds = logits_cat.max(dim=1)
-        bal_acc = compute_balanced_acc(labels_cat, preds)
-
-    return acc, ece, bal_acc
-
-def train_one_epoch(model, loader, optimizer, device, scaler=None, cfg_train=None):
-    model.train(); tot_acc=tot_n=0
-    use_mixup = cfg_train is not None and "mixup_alpha"  in cfg_train
-    use_cm   = cfg_train is not None and "cutmix_alpha" in cfg_train
-    for x,y in loader:
-        x,y=x.to(device),y.to(device)
         optimizer.zero_grad(set_to_none=True)
-        if use_mixup: x, y = _mixup(x, y, cfg_train["mixup_alpha"])
-        if use_cm:    x, y = _cutmix(x, y, cfg_train["cutmix_alpha"])
+
+        if use_mixup:
+            x, y = _mixup(x, y, cfg_train["mixup_alpha"])
+        if use_cm:
+            x, y = _cutmix(x, y, cfg_train["cutmix_alpha"])
+
         if scaler:
             with torch.cuda.amp.autocast():
-                lg = model(x); loss = _criterion(lg, y)
-            scaler.scale(loss).backward(); scaler.step(optimizer); scaler.update()
+                logits = model(x)
+                loss = _criterion(logits, y)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
         else:
-            lg = model(x); loss = _criterion(lg, y)
-            loss.backward(); optimizer.step()
-        tot_acc += accuracy(lg, y if not isinstance(y,tuple) else y[0]) * x.size(0)
-        tot_n += x.size(0)
-    return tot_acc/tot_n
+            logits = model(x)
+            loss = _criterion(logits, y)
+            loss.backward()
+            optimizer.step()
+
+        bs = x.size(0)
+        # accuracy: 对 mixup/cutmix 取 y[0] 作为“原始标签”
+        acc_target = y if not isinstance(y, tuple) else y[0]
+        tot_acc += accuracy(logits, acc_target) * bs
+        tot_loss += loss.item() * bs
+        tot_n += bs
+
+    avg_acc = tot_acc / tot_n
+    avg_loss = tot_loss / tot_n
+    return avg_acc, avg_loss

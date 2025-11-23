@@ -89,9 +89,16 @@ def main():
     # -----------------------
     # 3) Build run name
     # -----------------------
+    data_cfg = cfg.get("data", {})
+    model_cfg = cfg.get("model", {})
+
+    data_name = data_cfg.get("name", "unknown")
+    aug_name  = data_cfg.get("aug", "noaug")
+    model_name = model_cfg.get("name", "model")
+
     run_name = (
-        f"{cfg['model']['name']}_{cfg['data']['name']}_"
-        f"{cfg['data']['aug']}_{cfg['train']['exp_id']}_"
+        f"{model_name}_{data_name}_"
+        f"{aug_name}_{cfg['train']['exp_id']}_"
         f"lr{cfg['train']['lr']}_seed{cfg['seed']}"
     )
 
@@ -153,8 +160,9 @@ def main():
     for ep in range(epochs):
 
         # Train
-        tr_acc = train_one_epoch(model, train_ld, optim, device, scaler, cfg_train=cfg["train"])
-
+        tr_acc, tr_loss = train_one_epoch(
+        model, train_ld, optim, device, scaler, cfg_train=cfg["train"]
+        )
         # Eval
         use_bal_acc = cfg["eval"].get("do_bal_acc", False)  # CIFAR=False, MedMNIST=True
 
@@ -170,12 +178,13 @@ def main():
         #  Log to W&B
         # -----------------------
         log_dict = {
-            "epoch": ep,
-            "train/acc": tr_acc,
-            "eval/acc": va_acc,
-            "eval/ece": va_ece if va_ece is not None else None,
-            "lr": optim.param_groups[0]["lr"],
-            "early_stop_enabled": int(use_es),
+        "epoch": ep,
+        "train/acc": tr_acc,
+        "train/loss": tr_loss,  # ⭐ 新增
+        "eval/acc": va_acc,
+        "eval/ece": va_ece if va_ece is not None else None,
+        "lr": optim.param_groups[0]["lr"],
+        "early_stop_enabled": int(use_es),
         }
 
         if use_bal_acc:
