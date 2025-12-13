@@ -70,16 +70,47 @@ if __name__ == "__main__":
     
     
     
-"""
-# CIFAR-10 baseline (C1–C4)
-python tools/run_lr_grid.py cifar10
+""""
+Stage-1: Baseline LR Grid Search
+阶段 1：基线模型学习率网格搜索
 
-# CIFAR-100 baseline (C1–C4)
-python tools/run_lr_grid.py cifar100
+EN:
+    This script runs a learning-rate grid search for the baseline model
+    on a single dataset (no advanced augmentation, only `baseline`).
+    It calls `main.py` multiple times with different `train.lr` values,
+    and logs all runs to W&B (typically project `aug-baseline-cnn`).
 
-# DermaMNIST baseline (C1–C4, with Balanced Accuracy)
-python tools/run_lr_grid.py dermamnist
+    Typical usage:
+        # CIFAR datasets
+        python tools/run_lr_grid.py cifar10
+        python tools/run_lr_grid.py cifar100
 
-# PathMNIST baseline (C1–C4, with Balanced Accuracy)
-python tools/run_lr_grid.py pathmnist
+        # Medical datasets (if supported in this script)
+        python tools/run_lr_grid.py dermamnist
+        python tools/run_lr_grid.py pathmnist
+
+    The goal of Stage-1 is:
+        - For EACH dataset, find a stable learning rate (and roughly a
+          reasonable epoch budget) that will be reused in Stage-2.
+        - We do NOT compare augmentations here, only the baseline.
+
+ZH:
+    本脚本用于对「基线模型」在单个数据集上做学习率网格搜索
+    （不启用高级增强，只使用 `baseline` 增强）。
+    它会用不同的 `train.lr` 多次调用 `main.py`，并把所有结果记录到
+    W&B（通常是 `aug-baseline-cnn` 项目）。
+
+    常用命令示例：
+        # CIFAR 数据集
+        python tools/run_lr_grid.py cifar10
+        python tools/run_lr_grid.py cifar100
+
+        # 医学数据集（如果本脚本中已支持）
+        python tools/run_lr_grid.py dermamnist
+        python tools/run_lr_grid.py pathmnist
+
+    Stage-1 的目标是：
+        - 对「每个数据集」分别找到一个稳定的学习率
+          （以及大致合理的 epoch 数），供 Stage-2 固定使用。
+        - 这一阶段不比较增强方法，只跑 baseline。
 """

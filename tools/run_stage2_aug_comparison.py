@@ -202,3 +202,71 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+    
+    
+    
+"""
+Stage-2: Clean Dataset Augmentation Comparison
+阶段 2：在干净数据集上的增强方法对比实验
+
+EN:
+    This script runs Stage-2 experiments for ONE dataset and
+    ALL augmentation configs found in `configs/augs/*.yaml`.
+
+    For a given dataset, it:
+        - Uses the best learning rate & epochs chosen in Stage-1
+          (hard-coded in the DATASETS dict).
+        - Calls `main.py` once per augmentation (baseline, autoaugment,
+          randaugment, mixup, cutmix, styleaug, diffusemix, ...).
+        - Trains on the clean training data (no CIFAR-C here).
+        - Logs training curves to W&B (project `aug-comparison`).
+        - Saves the final checkpoint for each augmentation (last epoch),
+          which will later be evaluated on CIFAR-C in Stage-3.
+
+    Usage:
+        # Run all augmentations for CIFAR-10
+        python tools/run_comparison.py cifar10
+
+        # Run all augmentations for CIFAR-100
+        python tools/run_comparison.py cifar100
+
+        # (If defined in DATASETS) run for medical datasets
+        python tools/run_comparison.py dermamnist
+        python tools/run_comparison.py pathmnist
+
+    Each call will:
+        - Print the list of discovered augmentations
+        - Show progress like [1/8], [2/8], ...
+        - For each aug, print the exact `main.py` command being executed.
+
+ZH:
+    本脚本用于对「一个数据集」上的「所有增强方法」进行 Stage-2 实验，
+    会自动扫描 `configs/augs/*.yaml` 里的所有增强配置。
+
+    对于给定的数据集，它会：
+        - 使用 Stage-1 为该数据集选出的最优学习率和 epoch 数
+          （写在脚本中的 DATASETS 字典里）。
+        - 对每一种增强（baseline、autoaugment、randaugment、
+          mixup、cutmix、styleaug、diffusemix 等）调用一次 `main.py`。
+        - 只在干净训练数据上训练（此阶段不涉及 CIFAR-C）。
+        - 将训练曲线记录到 W&B（项目名 `aug-comparison`）。
+        - 为每个增强保存「最后一轮」的模型权重，用于 Stage-3
+          在 CIFAR-C 上做鲁棒性评估。
+
+    使用方式：
+        # 在 CIFAR-10 上跑所有增强
+        python tools/run_comparison.py cifar10
+
+        # 在 CIFAR-100 上跑所有增强
+        python tools/run_comparison.py cifar100
+
+        # （如果 DATASETS 字典中已配置）在医学数据集上运行
+        python tools/run_comparison.py dermamnist
+        python tools/run_comparison.py pathmnist
+
+    每次运行会：
+        - 打印发现到的所有增强名称
+        - 显示进度，如 [1/8]，[2/8]……
+        - 对每个增强打印实际调用的 `main.py` 命令，便于复现和单独重跑。
+"""

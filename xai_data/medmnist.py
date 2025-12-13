@@ -4,21 +4,27 @@ Loader for DermaMNIST / PathMNIST
 """
 
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
 from medmnist import INFO
 import medmnist
-import torch
 
 from .transforms_registry import REGISTRY
 
 
-# -------------------------------------------------
-# 小包装：把 one-hot / 多维 label 变成整数类别
-# -------------------------------------------------
+from torch.utils.data import Dataset
+import torch
+import numpy as np
+
 class OneHotToIndexWrapper(Dataset):
     """
-    把 MedMNIST 返回的 one-hot / 多维 label 转成整数类别下标。
-    EN: Convert MedMNIST one-hot labels to integer class indices.
+    EN:
+        Wrap MedMNIST dataset so that:
+        - for scalar labels (e.g. [3] or 3) we just return int(label)
+        - for true one-hot / multi-label vectors we use argmax.
+
+    ZH:
+        封装 MedMNIST 数据集：
+        - 如果标签本身就是“单个类编号”（标量或长度 1 向量），直接 int()；
+        - 只有在确实是 one-hot / 多维向量时才用 argmax。
     """
     def __init__(self, base_ds):
         self.base_ds = base_ds
@@ -27,84 +33,89 @@ class OneHotToIndexWrapper(Dataset):
         return len(self.base_ds)
 
     def __getitem__(self, idx):
-        img, target = self.base_ds[idx]  # target: e.g. [0,0,1,0,...] 或 numpy 向量
+        img, target = self.base_ds[idx]
 
-        # MedMNIST 的 target 通常是多维向量 (one-hot)，这里转成单个 int
-        if hasattr(target, "argmax"):
-            cls = int(target.argmax())
+        # 统一转成 numpy / tensor，方便判断形状
+        if isinstance(target, torch.Tensor):
+            arr = target
         else:
-            # 保险：如果已经是标量就直接转成 int
-            cls = int(target)
+            arr = torch.as_tensor(target)
+
+        # 情况 1：标量或长度为 1 → 直接取数值
+        # Case 1: scalar or length-1 → just take its value
+        if arr.ndim == 0 or arr.numel() == 1:
+            cls = int(arr.item())
+        else:
+            # 情况 2：真正的 one-hot / 多维标签 → 用 argmax
+            # Case 2: real one-hot / multi-dim label → use argmax
+            cls = int(arr.argmax().item())
 
         return img, cls
+    
 
-
-# -------------------------------------------------
-# 构建 DataLoader
-# -------------------------------------------------
 def get_loaders(cfg):
     """
-    与 cifar.get_loaders 功能一致：
-    - 支持 train/val/test
-    - 医学数据集直接使用官方提供的 train / val / test
-    - 使用注册表里的 augmentation
-    """
+    MedMNIST loader (DermaMNIST / PathMNIST).
 
+    - Uses official train/val/test split from MedMNIST.
+    - Uses the same augmentation registry as CIFAR, but
+      with dataset-specific img_size / mean / std coming
+      from the dataset YAML.
+    """
     name = cfg["data"]["name"].lower()
     if name not in ["dermamnist", "pathmnist"]:
         raise ValueError(
             f"MedMNIST loader only supports DermaMNIST and PathMNIST, got {name}"
         )
 
-    # ------------------------------
-    # transforms
-    # ------------------------------
-    train_tf, test_tf = REGISTRY[cfg["data"]["aug"]]()
+    data_cfg = cfg["data"]
+    aug_key = data_cfg["aug"]           # e.g. "baseline"
+    img_size = int(data_cfg.get("img_size", 28))
+    mean = tuple(data_cfg.get("mean", [0.5, 0.5, 0.5]))
+    std  = tuple(data_cfg.get("std",  [0.5, 0.5, 0.5]))
 
-    # ------------------------------
-    # dataset info
-    # ------------------------------
+    # ------------------------------------------------
+    # 1) build transforms using registry + MedMNIST cfg
+    # ------------------------------------------------
+    if aug_key not in REGISTRY:
+        raise KeyError(f"Unknown augmentation key for MedMNIST: {aug_key}")
+
+    train_tf, test_tf = REGISTRY[aug_key](img_size=img_size, mean=mean, std=std)
+
+    # ------------------------------------------------
+    # 2) dataset info + official splits
+    # ------------------------------------------------
     info = INFO[name]
     DataClass = getattr(medmnist, info["python_class"])
-
-    # MedMNIST 的 INFO 没有 n_classes 字段，用 label 的长度来确定类别数
-    # MedMNIST INFO has no `n_classes`; infer it from the number of labels.
     num_classes = len(info["label"])
 
-    root = cfg["data"]["root"]
+    root = data_cfg["root"]
 
-    # ------------------------------
-    # 官方提供 train / val / test split
-    # 先构造原始数据集，再用 OneHotToIndexWrapper 包一层
-    # ------------------------------
-    base_train = DataClass(
-        root=root, split="train", transform=train_tf, download=False
-    )
-    base_val = DataClass(
-        root=root, split="val", transform=test_tf, download=False
-    )
-    base_test = DataClass(
-        root=root, split="test", transform=test_tf, download=False
-    )
+    base_train = DataClass(root=root, split="train",
+                           transform=train_tf, download=False)
+    base_val   = DataClass(root=root, split="val",
+                           transform=test_tf, download=False)
+    base_test  = DataClass(root=root, split="test",
+                           transform=test_tf, download=False)
 
     train_set = OneHotToIndexWrapper(base_train)
-    val_set = OneHotToIndexWrapper(base_val)
-    test_set = OneHotToIndexWrapper(base_test)
+    val_set   = OneHotToIndexWrapper(base_val)
+    test_set  = OneHotToIndexWrapper(base_test)
 
-    # ------------------------------
-    # DataLoader
-    # ------------------------------
+    # ------------------------------------------------
+    # 3) DataLoaders
+    # ------------------------------------------------
     def dl(ds, shuffle):
         return DataLoader(
             ds,
-            batch_size=cfg["data"]["batch_size"],
+            batch_size=data_cfg["batch_size"],
             shuffle=shuffle,
-            num_workers=cfg["data"]["num_workers"],
+            num_workers=data_cfg["num_workers"],
             pin_memory=True,
         )
 
     train_ld = dl(train_set, True)
-    val_ld = dl(val_set, False)
-    test_ld = dl(test_set, False)
+    val_ld   = dl(val_set,   False)
+    test_ld  = dl(test_set,  False)
 
     return train_ld, val_ld, test_ld, num_classes

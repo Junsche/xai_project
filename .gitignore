@@ -35,3 +35,13 @@ wandb/
 # --- OS Files ---
 .DS_Store
 Thumbs.db
+
+# --- analysis outputs (generated) ---
+analysis/*.csv
+analysis/plots_stage2/
+analysis/plots_stage3/
+
+# common generated artifacts
+*.png
+*.csv
+*.tex
