@@ -25,6 +25,7 @@ early_stopping:
 model:
   name: "resnet18"
   num_classes: 10         # 由数据集文件覆盖
+  weights: imagenet1k_v1  # 统一全局使用；可选“none”
 
 log:
   out_dir: "./runs"

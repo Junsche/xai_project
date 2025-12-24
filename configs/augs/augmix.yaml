@@ -1,0 +1,5 @@
+# configs/augs/augmix.yaml
+data:
+  aug: augmix
+train:
+  exp_id: S2_augmix

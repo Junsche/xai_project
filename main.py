@@ -134,8 +134,7 @@ def main():
     # -----------------------
     # 5) Model
     # -----------------------
-    model = build_model(cfg["model"]["name"], num_classes).to(device)
-
+    model = build_model(cfg["model"], num_classes).to(device)
     # -----------------------
     # 6) Optimizer
     # -----------------------

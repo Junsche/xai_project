@@ -1,33 +1,42 @@
-# 作用（中文）：把图像级增强做成“注册表”，配置里用字符串选择。
-# Purpose (EN): Register image-level transforms and select by key from configs.
+# xai_data/transforms_registry.py
+# Purpose: Register image-level transforms and select by key from configs.
+
+from __future__ import annotations
+from typing import Sequence, Tuple, Union, Optional
 
 from torchvision import transforms
-from xai_data.generative.styleaug_impl import build_styleaug_transforms
-# CIFAR 的标准均值/方差（Channels: RGB）
-# CIFAR standard mean/std
+
+# Default CIFAR mean/std (RGB)
 MEAN = (0.4914, 0.4822, 0.4465)
 STD  = (0.2470, 0.2435, 0.2616)
+
+MeanStd = Union[Sequence[float], Tuple[float, ...]]
+
+
+def _norm(mean: MeanStd, std: MeanStd) -> transforms.Normalize:
+    return transforms.Normalize(mean=mean, std=std)
+
+
+def _default_padding(img_size: int) -> int:
+    # CIFAR traditionally uses padding=4 for 32x32 (≈ 12.5%).
+    # For other sizes, scale padding roughly the same.
+    return max(1, int(round(img_size * 0.125)))
 
 
 # -------------------------
 # 1) Baseline
 # -------------------------
-def baseline(img_size=32, mean=MEAN, std=STD):
-    """
-    Baseline augmentation:
-    - RandomCrop + RandomHorizontalFlip + Normalize
-    """
+def baseline(img_size: int = 32, mean: MeanStd = MEAN, std: MeanStd = STD):
+    pad = _default_padding(img_size)
     train_tf = transforms.Compose([
-        transforms.RandomCrop(img_size, padding=4),
+        transforms.RandomCrop(img_size, padding=pad),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
     ])
-
-    # Val/Test: normalize only
     test_tf = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
     ])
     return train_tf, test_tf
 
@@ -35,24 +44,18 @@ def baseline(img_size=32, mean=MEAN, std=STD):
 # -------------------------
 # 2) AutoAugment
 # -------------------------
-def autoaugment(img_size=32, mean=MEAN, std=STD):
-    """
-    AutoAugment for CIFAR:
-    - (optional) RandomCrop + Flip
-    - AutoAugment(CIFAR10 policy)
-    - Normalize
-    """
+def autoaugment(img_size: int = 32, mean: MeanStd = MEAN, std: MeanStd = STD):
+    pad = _default_padding(img_size)
     train_tf = transforms.Compose([
-        transforms.RandomCrop(img_size, padding=4),
+        transforms.RandomCrop(img_size, padding=pad),
         transforms.RandomHorizontalFlip(),
         transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.CIFAR10),
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
     ])
-
     test_tf = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
     ])
     return train_tf, test_tf
 
@@ -60,24 +63,24 @@ def autoaugment(img_size=32, mean=MEAN, std=STD):
 # -------------------------
 # 3) RandAugment
 # -------------------------
-def randaugment(img_size=32, mean=MEAN, std=STD, num_ops=2, magnitude=9):
-    """
-    RandAugment:
-    - RandomCrop + Flip
-    - RandAugment(num_ops, magnitude)
-    - Normalize
-    """
+def randaugment(
+    img_size: int = 32,
+    mean: MeanStd = MEAN,
+    std: MeanStd = STD,
+    num_ops: int = 2,
+    magnitude: int = 9,
+):
+    pad = _default_padding(img_size)
     train_tf = transforms.Compose([
-        transforms.RandomCrop(img_size, padding=4),
+        transforms.RandomCrop(img_size, padding=pad),
         transforms.RandomHorizontalFlip(),
         transforms.RandAugment(num_ops=num_ops, magnitude=magnitude),
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
     ])
-
     test_tf = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
     ])
     return train_tf, test_tf
 
@@ -85,61 +88,87 @@ def randaugment(img_size=32, mean=MEAN, std=STD, num_ops=2, magnitude=9):
 # -------------------------
 # 4) Rotation + RandomErasing
 # -------------------------
-def rotation_erasing(img_size=32, mean=MEAN, std=STD,
-                     max_deg=15, erase_p=0.5):
-    """
-    Traditional augmentation:
-    - RandomCrop + Flip + RandomRotation
-    - RandomErasing (applied on tensor)
-    """
+def rotation_erasing(
+    img_size: int = 32,
+    mean: MeanStd = MEAN,
+    std: MeanStd = STD,
+    max_deg: int = 15,
+    erase_p: float = 0.5,
+):
+    pad = _default_padding(img_size)
     train_tf = transforms.Compose([
-        transforms.RandomCrop(img_size, padding=4),
+        transforms.RandomCrop(img_size, padding=pad),
         transforms.RandomHorizontalFlip(),
         transforms.RandomRotation(degrees=max_deg),
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
         transforms.RandomErasing(p=erase_p),
     ])
-
     test_tf = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        _norm(mean, std),
     ])
     return train_tf, test_tf
 
 
 # -------------------------
-# 5) StyleAug / DiffuseMix (占位版本)
+# 5) StyleAug / DiffuseMix
 # -------------------------
-def styleaug(img_size=32, mean=MEAN, std=STD):
-    """
-    EN:
-        StyleAug-v0: geometric baseline + strong color/style perturbations.
-    ZH:
-        StyleAug-v0：在 baseline 的几何增强基础上，叠加颜色 / 风格扰动。
-    """
+def styleaug(img_size: int = 32, mean: MeanStd = MEAN, std: MeanStd = STD):
+    # Implemented in xai_data/generative/styleaug_impl.py
+    from xai_data.generative.styleaug_impl import build_styleaug_transforms
     return build_styleaug_transforms(img_size=img_size, mean=mean, std=std)
 
 
-def diffusemix(img_size=32, mean=MEAN, std=STD):
-    """
-    EN: DiffuseMix-v0: baseline geometry + blur + Gaussian noise.
-    ZH: DiffuseMix-v0：基线几何增强 + 模糊 + 高斯噪声。
-    """
+def diffusemix(img_size: int = 32, mean: MeanStd = MEAN, std: MeanStd = STD):
+    # Implemented in xai_data/generative/diffusemix_impl.py
     from xai_data.generative.diffusemix_impl import build_diffusemix_transforms
     return build_diffusemix_transforms(img_size=img_size, mean=mean, std=std)
 
 
 # -------------------------
-# 注册表 / Registry
+# 6) AugMix (generic)
+# -------------------------
+def augmix(
+    img_size: int = 32,
+    mean: MeanStd = MEAN,
+    std: MeanStd = STD,
+    severity: int = 3,
+    width: int = 3,
+    depth: int = -1,
+    alpha: float = 1.0,
+):
+    pad = _default_padding(img_size)
+    train_tf = transforms.Compose([
+        transforms.RandomCrop(img_size, padding=pad),
+        transforms.RandomHorizontalFlip(),
+        transforms.AugMix(
+            severity=severity,
+            mixture_width=width,
+            chain_depth=depth,
+            alpha=alpha,
+        ),
+        transforms.ToTensor(),
+        _norm(mean, std),
+    ])
+    test_tf = transforms.Compose([
+        transforms.ToTensor(),
+        _norm(mean, std),
+    ])
+    return train_tf, test_tf
+
+
+# -------------------------
+# Registry
 # -------------------------
 REGISTRY = {
-    "baseline":          baseline,
-    "autoaugment":       autoaugment,
-    "randaugment":       randaugment,
-    "rotation_erasing":  rotation_erasing,
-    "styleaug":          styleaug,     # 目前 == baseline，占位
-    "diffusemix":        diffusemix,   # 目前 == baseline，占位
-    # 注意：Mixup / CutMix 是在 train.trainer 里通过 loss 实现，
-    # 一般 data.aug 仍然用 "baseline"，由 configs/augs/*.yaml 打开 mixup_alpha / cutmix_alpha。
+    "baseline": baseline,
+    "autoaugment": autoaugment,
+    "randaugment": randaugment,
+    "rotation_erasing": rotation_erasing,
+    "styleaug": styleaug,
+    "diffusemix": diffusemix,
+    "augmix": augmix,
+    # NOTE: Mixup/CutMix are batch-level mixing in train.trainer
+    # enabled via YAML (mixup_alpha / cutmix_alpha).
 }

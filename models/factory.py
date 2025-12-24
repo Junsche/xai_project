@@ -1,14 +1,26 @@
 # models/factory.py
-# 作用（中文）：按名字构建模型，为后续扩展预留统一入口。
-# Purpose (EN): Build model by name; single factory for future extensions.
-
-import torchvision.models as tvm
 import torch.nn as nn
 
-def build_model(name: str, num_classes: int):
-    name = name.lower()
+def build_model(model_cfg, num_classes: int):
+    name = model_cfg["name"].lower()
+    weights_key = str(model_cfg.get("weights", "none")).lower()
+
     if name == "resnet18":
-        m = tvm.resnet18(weights=None)  # 不用预训练权重 / no pretrained
-        m.fc = nn.Linear(m.fc.in_features, num_classes)
-        return m
+        from torchvision.models import resnet18, ResNet18_Weights
+
+        weights = None
+        if weights_key in ["imagenet1k_v1", "imagenet", "default"]:
+            weights = ResNet18_Weights.IMAGENET1K_V1
+        elif weights_key in ["none", "null", "false", "0"]:
+            weights = None
+        else:
+            raise ValueError(f"Unknown weights option: {weights_key}")
+
+        model = resnet18(weights=weights)
+
+        # replace classifier head
+        in_features = model.fc.in_features
+        model.fc = nn.Linear(in_features, num_classes)
+        return model
+
     raise ValueError(f"Unknown model: {name}")

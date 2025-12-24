@@ -2,7 +2,7 @@ import wandb
 
 wandb.init(
     project="xai-project",
-    entity="junschede-university-of-bamberg",
+    entity="junsche-university-of-bamberg",
     name="new-account-test"
 )
 
