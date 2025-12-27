@@ -26,6 +26,7 @@ early_stopping:            # ✅ 一定要有这个 section，否则 main.py 取
 model:
   name: "resnet18"         # 由 datasets/*.yaml 里的 num_classes 覆盖类别数
   num_classes: 10          # 占位符
+  weights: imagenet1k_v1 
 
 log:
   out_dir: "./runs"
@@ -36,6 +37,6 @@ eval:
   # do_cifar_c: false      # 如果以后需要可以补上
 
 wandb:
-  project: "aug-comparison"
+  project: "stage2-aug-comparison"
   group: "TBD"
   tags: []

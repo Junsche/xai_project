@@ -36,6 +36,6 @@ eval:
   mce_normalize_by: "baseline"   # 后续用基线作参照
 
 wandb:
-  project: "aug-baseline-cnn"
+  project: "stage1-lr-grid"
   group: "TBD"            # 由数据集文件覆盖
   tags: ["resnet18","sgd","bs128","epochs20","seed1437"]

@@ -46,20 +46,20 @@ DATASETS = {
     },
     "cifar100": {
         "yaml": "configs/datasets/cifar100.yaml",
-        "lr": 0.05,
+        "lr": 0.01,
         "epochs": 100,
         "group": "cifar100",
     },
     "dermamnist": {
         "yaml": "configs/datasets/dermamnist.yaml",
-        "lr": 0.0005,          # 注意：这里用 0.0005，而不是 0.001
-        "epochs": 30,          # 医学数据集训练稍短一些
+        "lr": 0.001,          
+        "epochs": 50,          
         "group": "dermamnist",
     },
     "pathmnist": {
         "yaml": "configs/datasets/pathmnist.yaml",
-        "lr": 0.0005,
-        "epochs": 30,
+        "lr": 0.001,
+        "epochs": 50,
         "group": "pathmnist",
     },
 }
@@ -102,7 +102,7 @@ def build_cmd(ds_name: str, ds_cfg: dict, aug_name: str, aug_yaml: str):
         "data.use_val_split=false",
         "early_stopping.enabled=false",
         # W&B 项目信息 / W&B project info
-        "wandb.project=aug-comparison",
+        "wandb.project=stage2-aug-comparison",
         f"wandb.group={ds_cfg['group']}",
         # 使用 Stage-1 选出来的 lr 和 epochs
         # Use lr & epochs chosen in Stage-1
