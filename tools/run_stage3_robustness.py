@@ -54,7 +54,7 @@ DEFAULT_AUGS = [
     "diffusemix",
 ]
 
-WANDB_PROJECT = "stage3-robustness"
+WANDB_PROJECT = "stage3-robustness-v3.1"
 SEED = 1437
 CKPT_DIR = "./runs"
 
@@ -208,8 +208,23 @@ def make_clean_test_loader_cifar(dataset: str, data_cfg: dict) -> DataLoader:
 # Data loaders: CIFAR-C (apply same Normalize as clean)
 # ============================================================
 
-def make_cifar_c_loaders(root: str, *, mean: Tuple[float, ...], std: Tuple[float, ...],
-                        batch_size=128, num_workers=4):
+def _normalize_batch_nchw(x: torch.Tensor, mean, std) -> torch.Tensor:
+    """
+     Normalize a batch tensor [N, C, H, W] with broadcasting.
+    """
+    mean_t = torch.tensor(mean, dtype=x.dtype, device=x.device).view(1, -1, 1, 1)
+    std_t  = torch.tensor(std,  dtype=x.dtype, device=x.device).view(1, -1, 1, 1)
+    return (x - mean_t) / std_t
+
+
+def make_cifar_c_loaders(
+    root: str,
+    *,
+    mean: Tuple[float, ...],
+    std: Tuple[float, ...],
+    batch_size=128,
+    num_workers=4,
+):
     loaders = {}
     root = os.path.abspath(root)
 
@@ -217,34 +232,48 @@ def make_cifar_c_loaders(root: str, *, mean: Tuple[float, ...], std: Tuple[float
     for fname in os.listdir(root):
         if not fname.endswith(".npy") or fname == "labels.npy":
             continue
-        cname = fname.replace(".npy", "")
 
-        x_all = np.load(os.path.join(root, fname))         # [50000,32,32,3] or [50000,32,32]
-        y_all = np.load(os.path.join(root, "labels.npy"))  # [10000] (CIFAR-C labels are the same for each severity)
+        cname = fname.replace(".npy", "")
+        x_all = np.load(os.path.join(root, fname))         # [50000,32,32,3] usually
+        y_all = np.load(os.path.join(root, "labels.npy"))  # can be [10000] or [50000]
+
+        y_all = np.asarray(y_all)
+        y_len = int(y_all.shape[0])
 
         sev_loaders = []
         for s in range(5):
-            xs = x_all[s*10000:(s+1)*10000]
-            ys = y_all[:10000]
+            xs = x_all[s * 10000:(s + 1) * 10000]
+
+            #  labels may be 10k (reused) or 50k (concatenated)
+            if y_len == 10000:
+                ys = y_all
+            else:
+                ys = y_all[s * 10000:(s + 1) * 10000]
 
             # NHWC -> NCHW
             if xs.ndim == 4:
                 xs = xs.transpose(0, 3, 1, 2)
-            xs = torch.from_numpy(xs).float() / 255.0
-            ys = torch.from_numpy(ys).long()
 
-            # Normalize using YAML mean/std
-            norm = tvt.Normalize(mean, std)
-            xs = norm(xs)
+            xs = torch.from_numpy(xs).float() / 255.0
+            ys = torch.from_numpy(np.asarray(ys)).long()
+
+            # Batch-safe Normalize using YAML mean/std
+            xs = _normalize_batch_nchw(xs, mean, std)
 
             ds = TensorDataset(xs, ys)
-            dl = DataLoader(ds, batch_size=batch_size, shuffle=False,
-                            num_workers=num_workers, pin_memory=True)
+            dl = DataLoader(
+                ds,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=True,
+            )
             sev_loaders.append(dl)
 
         loaders[cname] = sev_loaders
 
     return loaders
+
 
 
 # ============================================================

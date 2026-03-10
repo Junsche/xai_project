@@ -1,2 +1,6 @@
-data: { aug: "styleaug" }
-wandb: { tags: ["styleaug"] }
+data:
+  aug: "styleaug"
+train:
+  exp_id: "S2_styleaug"
+wandb:
+  tags: ["styleaug"]

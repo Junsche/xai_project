@@ -1,2 +1,6 @@
-data: { aug: "diffusemix" }
-wandb: { tags: ["diffusemix"] }
+data:
+  aug: "diffusemix"
+train:
+  exp_id: "S2_diffusemix"
+wandb:
+  tags: ["diffusemix"]

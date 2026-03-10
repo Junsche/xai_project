@@ -16,7 +16,7 @@ train:
   exp_id: "C1"
 
 early_stopping:
-  enabled: false          # 默认关闭；Baseline 会单独开启
+  enabled: false          # Disabled by default; baseline config may enable it explicitly
   monitor: "val_acc"
   mode: "max"
   patience: 5
@@ -24,8 +24,8 @@ early_stopping:
 
 model:
   name: "resnet18"
-  num_classes: 10         # 由数据集文件覆盖
-  weights: imagenet1k_v1  # 统一全局使用；可选“none”
+  num_classes: 10         # Overridden by dataset config
+  weights: imagenet1k_v1  # Global default; can be set to "none"
 
 log:
   out_dir: "./runs"
@@ -33,9 +33,9 @@ log:
 eval:
   do_ece: true
   do_cifar_c: false
-  mce_normalize_by: "baseline"   # 后续用基线作参照
+  mce_normalize_by: "baseline"   # Will be compared against baseline later
 
 wandb:
-  project: "stage1-lr-grid"
-  group: "TBD"            # 由数据集文件覆盖
+  project: "stage1-lr-grid-v3"
+  group: "TBD"            # Overridden by dataset config
   tags: ["resnet18","sgd","bs128","epochs20","seed1437"]

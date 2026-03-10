@@ -1,5 +1,6 @@
-# configs/augs/augmix.yaml
 data:
-  aug: augmix
+  aug: "augmix"
 train:
-  exp_id: S2_augmix
+  exp_id: "S2_augmix"
+wandb:
+  tags: ["augmix"]

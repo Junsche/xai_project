@@ -1,2 +1,6 @@
-data: { aug: "randaugment" }
-wandb: { tags: ["randaugment"] }
+data:
+  aug: "randaugment"
+train:
+  exp_id: "S2_randaugment"
+wandb:
+  tags: ["randaugment"]

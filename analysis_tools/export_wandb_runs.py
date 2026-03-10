@@ -1,16 +1,18 @@
 # export_wandb_runs.py
-# EN: Export selected metrics from a W&B project to a CSV file.
-# ZH: 从 W&B 项目中导出指定指标到 CSV，用于后续离线分析（Stage-2 / Stage-3 通用）。
+# EN: Export selected metrics from a W&B project to a CSV file (Stage-1/2/3).
+# ZH: 从 W&B 项目中导出指定指标到 CSV，用于离线分析（Stage-1/2/3 通用）。
 
 import os
 import argparse
+from typing import Any, Dict, Optional, List
+
 import wandb
 import pandas as pd
 from tqdm import tqdm
 
 
 # ---------------------------------------------------------
-# Fixed corruption subset for MedMNIST-C export (your thesis contract)
+# Fixed corruption subset for MedMNIST-C export (thesis contract)
 # ---------------------------------------------------------
 MEDMNISTC_8 = [
     "defocus_blur",
@@ -25,159 +27,258 @@ MEDMNISTC_8 = [
 
 
 # ---------------------------------------------------------
-# Helper: infer augmentation label (for Stage-2 training)
-# (KEEP if you still export Stage-2 and want mixup/cutmix correctly labeled)
+# Helpers: robust config access (flattened or nested)
 # ---------------------------------------------------------
-def infer_aug_label(cfg: dict, raw_aug: str | None) -> str | None:
+def _cfg_get(cfg: Dict[str, Any], key: str, default=None):
+    """
+    EN: Get config value supporting both flattened keys ("a.b") and nested dict.
+    ZH: 同时支持扁平 key（"a.b"）与嵌套 dict 的取值方式。
+    """
+    if key in cfg:
+        return cfg.get(key, default)
+
+    # nested lookup for dot keys
+    cur = cfg
+    for part in key.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return default
+        cur = cur[part]
+    return cur
+
+
+def _safe_float(x, default=0.0) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return default
+
+
+def _safe_int(x, default=0) -> int:
+    try:
+        return int(x)
+    except Exception:
+        return default
+
+
+# ---------------------------------------------------------
+# Helper: infer augmentation label (mainly for Stage-2 training)
+# ---------------------------------------------------------
+def infer_aug_label(cfg: Dict[str, Any], raw_aug: Optional[str]) -> Optional[str]:
     """
     EN:
-        For Stage-2 runs, data.aug is often "baseline" and the real augmentation
-        is controlled via train.mixup_alpha / train.cutmix_alpha.
-        This helper maps:
-            baseline + mixup_alpha>0  -> "mixup"
-            baseline + cutmix_alpha>0 -> "cutmix"
-        Otherwise returns raw_aug.
-
+      For Stage-2 runs, data.aug can be "baseline" but real augmentation
+      is controlled via mixup/cutmix alpha. Map baseline + alpha>0 => mixup/cutmix.
     ZH:
-        Stage-2 中，很多 YAML 里 data.aug 仍写的是 "baseline"，
-        真正的增强是通过 train.mixup_alpha / train.cutmix_alpha 打开的。
-        这个函数把：
-            baseline + mixup_alpha>0  映射成 "mixup"
-            baseline + cutmix_alpha>0 映射成 "cutmix"
-        其他情况直接返回原始 raw_aug。
+      Stage-2 中 data.aug 可能仍为 baseline，但 mixup/cutmix 由 alpha 打开。
+      baseline + alpha>0 => mixup/cutmix。
     """
     if raw_aug is None:
         return None
 
-    if str(raw_aug) != "baseline":
+    if str(raw_aug).lower() != "baseline":
         return raw_aug
 
-    # NOTE:
-    # W&B config is often flattened; but your current pipeline might log nested dict.
-    # We keep your original logic to avoid over-touching.
-    train_cfg = cfg.get("train", {})
-    mixup_alpha = train_cfg.get("mixup_alpha", 0.0)
-    cutmix_alpha = train_cfg.get("cutmix_alpha", 0.0)
-
-    try:
-        mixup_alpha = float(mixup_alpha)
-    except Exception:
-        mixup_alpha = 0.0
-    try:
-        cutmix_alpha = float(cutmix_alpha)
-    except Exception:
-        cutmix_alpha = 0.0
+    # support both flattened and nested
+    mixup_alpha = _safe_float(_cfg_get(cfg, "train.mixup_alpha", _cfg_get(cfg, "train", {}).get("mixup_alpha", 0.0)))
+    cutmix_alpha = _safe_float(_cfg_get(cfg, "train.cutmix_alpha", _cfg_get(cfg, "train", {}).get("cutmix_alpha", 0.0)))
 
     if mixup_alpha > 0 and cutmix_alpha > 0:
+        # in your pipeline you prefer labeling as "mixup" if both appear
         return "mixup"
     if mixup_alpha > 0:
         return "mixup"
     if cutmix_alpha > 0:
         return "cutmix"
-
     return raw_aug
 
 
 # ---------------------------------------------------------
-# Core export function
+# Detect stage / dataset / metadata in a robust way
 # ---------------------------------------------------------
-def export_project_runs(project: str,
-                        entity: str,
-                        outfile: str,
-                        group_prefix: str | None = None):
+def infer_dataset(cfg: Dict[str, Any]) -> Optional[str]:
+    dataset = (
+        _cfg_get(cfg, "dataset")  # often Stage-3
+        or _cfg_get(cfg, "data.name")
+        or _cfg_get(cfg, "data", {}).get("name") if isinstance(_cfg_get(cfg, "data"), dict) else None
+    )
+    return str(dataset).lower() if dataset is not None else None
+
+
+def infer_stage(cfg: Dict[str, Any]) -> Optional[str]:
+    stage = (
+        _cfg_get(cfg, "stage")
+        or _cfg_get(cfg, "train.stage")
+        or _cfg_get(cfg, "meta.stage")
+        or "unknown"
+    )
+    return str(stage).lower() if stage is not None else None
+
+
+def infer_exp_id(cfg: Dict[str, Any]) -> Optional[str]:
+    exp_id = _cfg_get(cfg, "train.exp_id", None)
+    if exp_id is None:
+        exp_id = _cfg_get(cfg, "exp_id", None)
+    return str(exp_id) if exp_id is not None else None
+
+
+def infer_lr(cfg: Dict[str, Any]) -> Optional[float]:
+    lr = _cfg_get(cfg, "train.lr", None)
+    if lr is None:
+        lr = _cfg_get(cfg, "lr", None)
+    return _safe_float(lr, default=None) if lr is not None else None
+
+
+def infer_aug(cfg: Dict[str, Any]) -> Optional[str]:
+    raw_aug = (
+        _cfg_get(cfg, "augmentation")              # often Stage-3
+        or _cfg_get(cfg, "data.aug")
+        or (_cfg_get(cfg, "data", {}).get("aug") if isinstance(_cfg_get(cfg, "data"), dict) else None)
+    )
+    aug = infer_aug_label(cfg, raw_aug)
+    return str(aug).lower() if aug is not None else None
+
+
+def infer_corruption(summary: Dict[str, Any], cfg: Dict[str, Any]) -> Optional[str]:
+    # prefer summary meta (your stage3 logger), fallback to config meta
+    corr = summary.get("meta/corruption")
+    if corr is None:
+        corr = _cfg_get(cfg, "meta.corruption", None)
+    return str(corr).lower() if corr is not None else None
+
+
+def infer_severity(summary: Dict[str, Any], cfg: Dict[str, Any]) -> int:
+    sev = summary.get("meta/severity")
+    if sev is None:
+        sev = _cfg_get(cfg, "meta.severity", 0)
+    return _safe_int(sev, default=0)
+
+
+# ---------------------------------------------------------
+# Which metrics to export
+# ---------------------------------------------------------
+STAGE2_3_METRICS = ["eval/acc", "eval/bal_acc", "eval/ece", "eval/mce", "eval/loss"]
+
+# Stage-1 cares mainly about validation curves/summaries
+# We'll export all keys that start with "val/" plus a few helpful ones if present
+def collect_stage1_metrics(summary: Dict[str, Any]) -> Dict[str, Any]:
+    out = {}
+    for k, v in summary.items():
+        if isinstance(k, str) and k.startswith("val/"):
+            out[k] = v
+    # also export eval/* if present (sometimes you logged eval on val split)
+    for k in STAGE2_3_METRICS:
+        if k in summary and k not in out:
+            out[k] = summary.get(k)
+    return out
+
+
+# ---------------------------------------------------------
+# Core export
+# ---------------------------------------------------------
+def export_project_runs(
+    project: str,
+    entity: str,
+    outfile: str,
+    mode: str = "auto",                 # auto | stage1 | stage2 | stage3
+    group_prefix: Optional[str] = None,
+    dataset_filter: Optional[str] = None,
+    stage_filter: Optional[str] = None,
+    exp_ids: Optional[List[str]] = None,
+    keep_medmnistc8: bool = True,
+):
     """
     EN:
-        Export all runs from `entity/project` whose group starts with
-        `group_prefix` (if given), and save them as `outfile` (CSV).
-
+      Export runs from W&B project with flexible filtering for Stage-1/2/3.
     ZH:
-        从 `entity/project` 中导出所有 run（可选：只导出 group
-        以 group_prefix 开头的），保存为 `outfile` CSV。
+      从 W&B 项目导出 runs，支持 Stage-1/2/3 的筛选与统一列结构。
     """
     api = wandb.Api()
     runs = api.runs(f"{entity}/{project}")
     rows = []
 
-    for run in tqdm(runs, desc=f"Exporting runs from {project}"):
+    for run in tqdm(runs, desc=f"Exporting runs from {entity}/{project}"):
         grp = (run.group or "") if hasattr(run, "group") else ""
         if group_prefix is not None and not grp.startswith(group_prefix):
             continue
 
-        cfg = dict(run.config)
-        summary = dict(run.summary)
+        cfg = dict(run.config or {})
+        summary = dict(run.summary or {})
 
-        # -----------------------------
-        # dataset: Stage-3 vs Stage-2
-        # -----------------------------
-        dataset = (
-            cfg.get("dataset")  # Stage-3
-            or cfg.get("data.name")
-            or cfg.get("data", {}).get("name")
-        )
-        dataset_str = str(dataset).lower() if dataset is not None else None
+        dataset = infer_dataset(cfg)
+        stage = infer_stage(cfg)
+        exp_id = infer_exp_id(cfg)
+        lr = infer_lr(cfg)
+        aug = infer_aug(cfg)
 
-        # -----------------------------
-        # augmentation
-        # -----------------------------
-        raw_aug = (
-            cfg.get("augmentation")               # Stage-3
-            or cfg.get("data.aug")               # some configs
-            or cfg.get("data", {}).get("aug")    # Stage-2 / Stage-1
-        )
-        aug = infer_aug_label(cfg, raw_aug)
-        aug_str = str(aug).lower() if aug is not None else None
+        # optional user filters
+        if dataset_filter is not None and dataset != dataset_filter.lower():
+            continue
+        if stage_filter is not None and stage != stage_filter.lower():
+            continue
+        if exp_ids is not None and exp_id not in exp_ids:
+            continue
 
-        # stage tag (optional)
-        stage = (
-            cfg.get("stage")
-            or cfg.get("train.stage", "unknown")
-        )
+        # auto mode: infer by presence of corruption meta or exp_id grid
+        corr = infer_corruption(summary, cfg)
+        sev = infer_severity(summary, cfg)
 
-        # -----------------------------
-        # ONLY CHANGE YOU REQUESTED:
-        # If this is MedMNIST Stage-3 data, export only the fixed 8 corruptions.
-        # We rely on meta/corruption stored in SUMMARY (as in your Stage-3 code).
-        # -----------------------------
-        corr = summary.get("meta/corruption")
-        sev = summary.get("meta/severity")
+        if mode == "auto":
+            if exp_id in ["C1", "C2", "C3", "C4"] and (corr is None or corr == "clean" or sev == 0):
+                inferred_mode = "stage1"
+            elif corr is not None:
+                # likely stage3 evaluation
+                inferred_mode = "stage3"
+            else:
+                inferred_mode = "stage2"
+        else:
+            inferred_mode = mode.lower()
 
-        corr_str = str(corr).lower() if corr is not None else None
-
-        is_medmnist = dataset_str in ["dermamnist", "pathmnist"]
-        is_stage3 = str(stage).lower() == "stage3"
-
-        # Keep clean always (corr == "clean" or severity == 0)
-        is_clean = (corr_str == "clean") or (sev == 0)
-
-        if is_medmnist and is_stage3 and (not is_clean):
-            # Filter to the shared fixed 8 corruptions
-            if corr_str not in MEDMNISTC_8:
+        # Stage-1: keep only exp_id C1-4 by default
+        if inferred_mode == "stage1":
+            if exp_id not in ["C1", "C2", "C3", "C4"]:
                 continue
+
+        # Stage-3: optionally filter MedMNIST-C to fixed 8 corruptions (keep clean always)
+        is_clean = (corr == "clean") or (sev == 0)
+        if keep_medmnistc8 and inferred_mode == "stage3":
+            if dataset in ["dermamnist", "pathmnist"] and (not is_clean):
+                if corr not in MEDMNISTC_8:
+                    continue
+
+        # only finished runs (consistent with your analyses)
+        state = getattr(run, "state", None)
+        if state is not None and state != "finished":
+            continue
 
         row = {
             "run_id": run.id,
             "run_name": run.name,
             "group": grp,
-            "dataset": dataset_str,
-            "augmentation": aug_str,
-            "stage": str(stage).lower() if stage is not None else None,
-            # Main metrics
-            "eval/acc": summary.get("eval/acc"),
-            "eval/ece": summary.get("eval/ece"),
-            "eval/mce": summary.get("eval/mce"),
-            "eval/loss": summary.get("eval/loss"),
-            "eval/bal_acc": summary.get("eval/bal_acc"),
-            # For Stage-3 (CIFAR-C / MedMNIST-C)
+            "dataset": dataset,
+            "stage": stage,
+            "mode": inferred_mode,
+            "augmentation": aug,
+            "exp_id": exp_id,
+            "lr": lr,
+            "seed": _cfg_get(cfg, "seed", _cfg_get(cfg, "train.seed", None)),
+            # corruption meta
             "meta/corruption": corr,
             "meta/severity": sev,
             # run state
-            "state": getattr(run, "state", None),
+            "state": state,
         }
+
+        # metrics
+        if inferred_mode == "stage1":
+            row.update(collect_stage1_metrics(summary))
+        else:
+            for k in STAGE2_3_METRICS:
+                row[k] = summary.get(k)
 
         rows.append(row)
 
     if not rows:
-        print("[WARN] No runs exported. Check project / group_prefix.")
+        print("[WARN] No runs exported. Check project / filters.")
         return
 
     df = pd.DataFrame(rows)
@@ -191,39 +292,45 @@ def export_project_runs(project: str,
 # ---------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
-        description="Export W&B project runs to CSV (Stage-2 / Stage-3)."
+        description="Export W&B project runs to CSV (Stage-1/2/3)."
     )
+    parser.add_argument("--project", required=True, help="W&B project name")
+    parser.add_argument("--entity", default=os.getenv("WANDB_ENTITY", ""), help="W&B entity")
+    parser.add_argument("--outfile", required=True, help="Output CSV path")
     parser.add_argument(
-        "--project",
-        required=True,
-        help="W&B project name, e.g. stage2-aug-comparison / stage3-robustness",
+        "--mode",
+        default="auto",
+        choices=["auto", "stage1", "stage2", "stage3"],
+        help="Export mode (default: auto)",
     )
+    parser.add_argument("--group-prefix", default=None, help="Only export runs with group prefix")
+    parser.add_argument("--dataset", default=None, help="Filter by dataset (cifar10/cifar100/dermamnist/pathmnist)")
+    parser.add_argument("--stage", default=None, help="Filter by stage (stage1/stage2/stage3 if logged)")
+    parser.add_argument("--exp-ids", default=None, help="Comma-separated exp_id list, e.g. C1,C2,C3,C4")
     parser.add_argument(
-        "--entity",
-        default=os.getenv("WANDB_ENTITY", ""),
-        help="W&B entity (default: from WANDB_ENTITY env)",
-    )
-    parser.add_argument(
-        "--outfile",
-        required=True,
-        help="Output CSV path, e.g. analysis/stage3_all_runs.csv",
-    )
-    parser.add_argument(
-        "--group-prefix",
-        default=None,
-        help="Only export runs whose group starts with this prefix",
+        "--no-medmnistc8",
+        action="store_true",
+        help="Disable MedMNIST-C fixed 8-corruption filter (keep all corruptions).",
     )
 
     args = parser.parse_args()
-
     if not args.entity:
         raise SystemExit("Please set --entity or export WANDB_ENTITY in your shell.")
+
+    exp_ids = None
+    if args.exp_ids:
+        exp_ids = [s.strip() for s in args.exp_ids.split(",") if s.strip()]
 
     export_project_runs(
         project=args.project,
         entity=args.entity,
         outfile=args.outfile,
+        mode=args.mode,
         group_prefix=args.group_prefix,
+        dataset_filter=args.dataset,
+        stage_filter=args.stage,
+        exp_ids=exp_ids,
+        keep_medmnistc8=(not args.no_medmnistc8),
     )
 
 

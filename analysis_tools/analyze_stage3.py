@@ -403,8 +403,8 @@ def analyze(csv_path: str, dataset: str, out_dir: str = "analysis/plots_stage3")
 
     # -----------------------------
     # E) Heatmap: corruption × aug (accuracy), severity-mean
+    #    + add clean test set as first row (reference)
     # -----------------------------
-    # Use bycorr (severity-mean) for heatmap -> stable and paper-friendly
     if "sevmean_eval/acc" in bycorr.columns:
         pivot_acc = bycorr.pivot_table(
             index="corruption",
@@ -413,15 +413,28 @@ def analyze(csv_path: str, dataset: str, out_dir: str = "analysis/plots_stage3")
             aggfunc="mean",
         )
 
-        # reorder cols by AUG_ORDER
+        # reorder columns (canonical aug tokens)
         cols = [a for a in AUG_ORDER if a in pivot_acc.columns]
         pivot_acc = pivot_acc[cols]
-        # rename to pretty names for plotting
+
+        # rename columns to pretty names (match clean_table)
         pivot_acc.columns = [AUG_NAME_MAP.get(c, c) for c in pivot_acc.columns]
+
+        # build clean reference row
+        if "Clean Acc." in clean_table.columns and not clean_table.empty:
+            clean_series = clean_table.set_index("Augmentation")["Clean Acc."]
+
+            clean_row = pd.DataFrame(index=["clean"], columns=pivot_acc.columns, dtype=float)
+            clean_row.loc["clean"] = clean_series.reindex(pivot_acc.columns).astype(float)
+
+            pivot_acc = pd.concat([clean_row, pivot_acc], axis=0)
+
+        # optional: make sure order is clean first, then other rows (already true after concat)
+        # pivot_acc = pivot_acc.reindex(["clean"] + [i for i in pivot_acc.index if i != "clean"])
 
         _heatmap(
             pivot_acc,
-            title=f"{dataset}: Accuracy heatmap (sev-mean over severity)",
+            title=f"{dataset}: Accuracy heatmap (clean + sev-mean corruption)",
             out_prefix=os.path.join(out_dir, f"{dataset}_heatmap_acc_sevmean"),
             cbar_label="Accuracy",
         )

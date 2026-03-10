@@ -1,3 +1,7 @@
-data: { aug: "baseline" }
-train: { cutmix_alpha: 1.0 }
-wandb: { tags: ["cutmix"] }
+data:
+  aug: "baseline"
+train:
+  exp_id: "S2_cutmix"
+  cutmix_alpha: 1.0
+wandb:
+  tags: ["cutmix"]

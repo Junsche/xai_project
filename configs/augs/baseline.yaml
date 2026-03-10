@@ -1,6 +1,6 @@
 data:
-  aug: "baseline"     # Crop+HFlip+Normalize
-early_stopping:
-  enabled: true
+  aug: "baseline"
+train:
+  exp_id: "S2_baseline"
 wandb:
-  tags: ["baseline","crop+hflip"]
+  tags: ["baseline", "crop+hflip"]

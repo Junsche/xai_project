@@ -36,18 +36,52 @@ def _find_xy(npz):
 
 def _maybe_select_severity(x: np.ndarray, y: np.ndarray, severity: int):
     """
-    Some MedMNIST-C packs store severity as an extra leading axis (e.g., [5, N, H, W, C]).
-    If so: severity in 1..5.
-    If not: return as-is.
+    Support two MedMNIST-C severity layouts:
+
+    A) axis layout: x shape [5, N, H, W, C] (or [5, N, H, W])
+    B) stacked layout: x shape [5*N, H, W, C] where severities are concatenated
+       along the sample dimension in order (sev1 block, sev2 block, ...).
+
+    severity in 1..5
     """
     if severity is None:
         return x, y
 
-    if x.ndim >= 5 and x.shape[0] in [5, 6]:  # usually 5 severities
-        # treat x[severity-1] as selected
-        s = int(severity) - 1
-        return x[s], y[s] if (isinstance(y, np.ndarray) and y.ndim >= 2 and y.shape[0] == x.shape[0]) else (x[s], y)
+    s = int(severity) - 1
+    if s < 0:
+        raise ValueError("severity must be >= 1")
 
+    # ---- A) axis layout ----
+    if x.ndim >= 5 and x.shape[0] in [5, 6]:
+        x_sel = x[s]
+        if isinstance(y, np.ndarray) and y.ndim >= 2 and y.shape[0] == x.shape[0]:
+            y_sel = y[s]
+        else:
+            y_sel = y
+        return x_sel, y_sel
+
+    # ---- B) stacked layout ----
+    # Typical: x shape (M, H, W, C) and M divisible by 5
+    if x.ndim == 4 and x.shape[0] % 5 == 0:
+        n = x.shape[0] // 5
+        x_sel = x[s * n : (s + 1) * n]
+        if isinstance(y, np.ndarray) and y.shape[0] == x.shape[0]:
+            y_sel = y[s * n : (s + 1) * n]
+        else:
+            y_sel = y
+        return x_sel, y_sel
+
+    # (Optional) handle grayscale stacked (M, H, W)
+    if x.ndim == 3 and x.shape[0] % 5 == 0:
+        n = x.shape[0] // 5
+        x_sel = x[s * n : (s + 1) * n]
+        if isinstance(y, np.ndarray) and y.shape[0] == x.shape[0]:
+            y_sel = y[s * n : (s + 1) * n]
+        else:
+            y_sel = y
+        return x_sel, y_sel
+
+    # fallback: no severity structure detected
     return x, y
 
 

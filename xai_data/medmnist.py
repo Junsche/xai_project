@@ -13,17 +13,7 @@ from .transforms_registry import REGISTRY
 
 
 class OneHotToIndexWrapper(Dataset):
-    """
-    EN:
-        Wrap MedMNIST dataset so that:
-        - for scalar labels (e.g. [3] or 3) we just return int(label)
-        - for true one-hot / multi-label vectors we use argmax.
-
-    ZH:
-        封装 MedMNIST 数据集：
-        - 如果标签本身就是“单个类编号”（标量或长度 1 向量），直接 int()；
-        - 只有在确实是 one-hot / 多维向量时才用 argmax。
-    """
+    
     def __init__(self, base_ds):
         self.base_ds = base_ds
 
@@ -47,10 +37,7 @@ class OneHotToIndexWrapper(Dataset):
 
 
 def _as_list_floats(x):
-    """
-    EN: Convert x (list/tuple/number) into list[float].
-    ZH: 把 x（list/tuple/数字）转换成 list[float]。
-    """
+    
     if x is None:
         return None
     if isinstance(x, (int, float)):
@@ -61,19 +48,7 @@ def _as_list_floats(x):
 
 
 def _broadcast_mean_std(mean, std, n_channels: int):
-    """
-    EN:
-        Make mean/std length match n_channels.
-        - If mean/std is None: use 0.5 defaults
-        - If length==1 and n_channels==3: replicate
-        - If length==3 and n_channels==1: take first (or average)
-
-    ZH:
-        让 mean/std 的长度匹配通道数 n_channels：
-        - mean/std 缺失：用 0.5 默认值
-        - mean/std 只有 1 个值但需要 3 通道：复制成 3 个
-        - mean/std 有 3 个值但需要 1 通道：默认取第一个（也可改成平均）
-    """
+    
     if mean is None:
         mean = [0.5] * n_channels
     if std is None:
@@ -104,17 +79,7 @@ def _broadcast_mean_std(mean, std, n_channels: int):
 
 
 def get_loaders(cfg):
-    """
-    EN:
-        MedMNIST loader (DermaMNIST / PathMNIST).
-        - Uses official train/val/test split from MedMNIST.
-        - Builds transforms via REGISTRY with correct img_size/mean/std.
-
-    ZH:
-        MedMNIST loader（DermaMNIST / PathMNIST）：
-        - 使用官方 train/val/test split
-        - 用 REGISTRY 构建 transforms，并自动适配通道数的 mean/std
-    """
+    
     name = cfg["data"]["name"].lower()
     if name not in ["dermamnist", "pathmnist"]:
         raise ValueError(

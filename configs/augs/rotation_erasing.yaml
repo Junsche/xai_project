@@ -1,2 +1,6 @@
-data: { aug: "rotation_erasing" }
-wandb: { tags: ["rotation","random_erasing"] }
+data:
+  aug: "rotation_erasing"
+train:
+  exp_id: "S2_rotation_erasing"
+wandb:
+  tags: ["rotation", "random_erasing"]

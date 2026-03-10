@@ -1,24 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-EN: Training entry for baseline & augmentation experiments (Stage 1 / 2).
-    - Parses configs with command-line overrides
-    - Sets seed / device
-    - Builds loaders / model / optimizer
-    - Optional EarlyStopping (only enabled in baseline.yaml for Stage-1)
-    - Logs rich metrics to Weights & Biases (W&B)
-    - Saves:
-        * best.pt  (by val_acc, only when early_stopping.enabled = true)
-        * last.pt  (always: checkpoint from the last finished epoch)
+Training entry for baseline & augmentation experiments (Stage 1 / 2).
 
-ZH: 训练主入口（用于 Stage-1 / Stage-2）：
-    - 解析配置 + 命令行 override
-    - 设定随机种子与设备
-    - 构建数据加载器 / 模型 / 优化器
-    - 可选早停（只在 baseline.yaml 中打开，用于 Stage-1）
-    - 把丰富指标写入 W&B
-    - 保存：
-        * best.pt  （基于 val_acc，仅在 early_stopping.enabled = true 时）
-        * last.pt  （始终保存：最后一个 epoch 的权重）
+What this script does:
+- Parses YAML configs with optional command-line overrides
+- Sets random seed and selects device (CPU/CUDA)
+- Builds data loaders, model, and optimizer
+- Optional EarlyStopping (intended for Stage-1 baseline)
+- Logs metrics to Weights & Biases (W&B)
+- Saves checkpoints:
+    * best.pt  (by val_acc, only when early_stopping.enabled = true)
+    * last.pt  (always: checkpoint from the last finished epoch)
 """
 
 import os
@@ -28,11 +20,11 @@ import wandb
 from utils.config import parse_with_overrides
 from utils.seed import seed_everything
 
-# CIFAR loader
+# Dataset loaders
 from xai_data.cifar import get_loaders as get_cifar_loaders
-# MedMNIST loader
 from xai_data.medmnist import get_loaders as get_medmnist_loaders
 
+# Model + training utilities
 from models.factory import build_model
 from train.trainer import train_one_epoch, evaluate
 
@@ -44,6 +36,7 @@ from torch.optim import SGD
 # ---------------------------
 class EarlyStopping:
     """Minimal early stopping helper."""
+
     def __init__(self, mode="max", patience=5, min_delta=0.0):
         self.mode = mode
         self.patience = int(patience)
@@ -53,6 +46,12 @@ class EarlyStopping:
         self.should_stop = False
 
     def step(self, cur):
+        """
+        Update early-stopping state with the current metric value.
+
+        Returns:
+            bool: True if training should stop, otherwise False.
+        """
         if self.best is None:
             self.best = cur
             return False
@@ -75,7 +74,7 @@ class EarlyStopping:
 
 
 def _as_float(x, name):
-    """Safe numeric cast (handles YAML overrides)."""
+    """Safe numeric cast (useful when YAML overrides produce strings)."""
     try:
         return float(x)
     except Exception as e:
@@ -84,25 +83,25 @@ def _as_float(x, name):
 
 def main():
     # -----------------------
-    # 1) Load & seed config
+    # 1) Load config + seed
     # -----------------------
     cfg = parse_with_overrides()
     seed_everything(cfg["seed"])
 
     # -----------------------
-    # 2) Device
+    # 2) Device selection
     # -----------------------
     wants_cuda = (cfg["device"] == "cuda")
     device = torch.device("cuda" if wants_cuda and torch.cuda.is_available() else "cpu")
 
     # -----------------------
-    # 3) Build run name
+    # 3) Build a descriptive run name (for W&B and checkpoint files)
     # -----------------------
     data_cfg = cfg.get("data", {})
     model_cfg = cfg.get("model", {})
 
-    data_name  = data_cfg.get("name", "unknown")
-    aug_name   = data_cfg.get("aug", "noaug")
+    data_name = data_cfg.get("name", "unknown")
+    aug_name = data_cfg.get("aug", "noaug")
     model_name = model_cfg.get("name", "model")
 
     run_name = (
@@ -111,6 +110,7 @@ def main():
         f"lr{cfg['train']['lr']}_seed{cfg['seed']}"
     )
 
+    # Initialize W&B logging for this run
     wandb.init(
         project=cfg["wandb"]["project"],
         group=cfg["wandb"]["group"],
@@ -120,33 +120,34 @@ def main():
     )
 
     # -----------------------
-    # 4) Data loaders
+    # 4) Build data loaders
     # -----------------------
-    # 注意：
-    #   - Stage-2：CIFAR 使用 train / val split（val=eval，用于监控）
-    #   - 真正的 test（clean + CIFAR-C）在 Stage-3 单独脚本里跑
+    # Note:
+    # - For Stage-2, we typically monitor performance on a validation split.
+    # - Final test evaluation (clean test and corruption test like CIFAR-C) is handled elsewhere (Stage-3).
     if cfg["data"]["name"].lower() in ["dermamnist", "pathmnist"]:
         train_ld, val_ld, test_ld, num_classes = get_medmnist_loaders(cfg)
-    else:  # CIFAR
+    else:  # CIFAR family
         train_ld, val_ld, num_classes = get_cifar_loaders(cfg)
-        test_ld = None  # 占位，Stage-2 不用 test
+        test_ld = None  # Placeholder (this script does not use test for CIFAR in Stage-2)
 
     # -----------------------
-    # 5) Model
+    # 5) Build model
     # -----------------------
     model = build_model(cfg["model"], num_classes).to(device)
+
     # -----------------------
-    # 6) Optimizer
+    # 6) Optimizer + AMP scaler
     # -----------------------
-    lr           = _as_float(cfg["train"]["lr"], "train.lr")
-    momentum     = _as_float(cfg["train"]["momentum"], "train.momentum")
+    lr = _as_float(cfg["train"]["lr"], "train.lr")
+    momentum = _as_float(cfg["train"]["momentum"], "train.momentum")
     weight_decay = _as_float(cfg["train"]["weight_decay"], "train.weight_decay")
 
     optim = SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
 
     # -----------------------
-    # 7) Early stopping (only Stage-1 uses it)
+    # 7) Early stopping (intended for Stage-1 baseline)
     # -----------------------
     use_es = bool(cfg["early_stopping"].get("enabled", False))
     es = None
@@ -158,9 +159,9 @@ def main():
         )
 
     # -----------------------
-    # 8) Training Loop
+    # 8) Training loop
     # -----------------------
-    # best 只在 early_stopping 开启时才真正有意义（Stage-1）
+    # best checkpoint is meaningful only if early stopping is enabled
     best_metric = -1e9 if cfg["early_stopping"].get("mode", "max") == "max" else 1e9
 
     os.makedirs(cfg["log"]["out_dir"], exist_ok=True)
@@ -170,9 +171,7 @@ def main():
     epochs = int(cfg["train"]["epochs"])
 
     for ep in range(epochs):
-        # -----------------------
-        # Train
-        # -----------------------
+        # 8.1) Train for one epoch
         tr_acc, tr_loss = train_one_epoch(
             model,
             train_ld,
@@ -182,9 +181,7 @@ def main():
             cfg_train=cfg["train"],
         )
 
-        # -----------------------
-        # Eval on validation loader (NOT test)
-        # -----------------------
+        # 8.2) Evaluate on validation loader (not test)
         use_bal_acc = cfg["eval"].get("do_bal_acc", False)
 
         va_acc, va_ece, va_mce, va_bal_acc, va_loss = evaluate(
@@ -195,14 +192,10 @@ def main():
             do_bal_acc=use_bal_acc,
         )
 
-        # -----------------------
-        # Save LAST checkpoint (always)
-        # -----------------------
+        # 8.3) Save last checkpoint (always)
         torch.save(model.state_dict(), last_path)
 
-        # -----------------------
-        # Save BEST checkpoint (only if ES enabled, e.g. Stage-1)
-        # -----------------------
+        # 8.4) Save best checkpoint (only if early stopping enabled)
         if use_es:
             is_better = (
                 va_acc > best_metric
@@ -213,9 +206,7 @@ def main():
                 best_metric = va_acc
                 torch.save(model.state_dict(), best_path)
 
-        # -----------------------
-        # Log to W&B
-        # -----------------------
+        # 8.5) Log to W&B
         log_dict = {
             "epoch": ep,
             "train/acc": tr_acc,
@@ -233,15 +224,13 @@ def main():
 
         wandb.log(log_dict)
 
-        # -----------------------
-        # Early stop check (Stage-1 only)
-        # -----------------------
+        # 8.6) Early stop check
         if use_es and es.step(va_acc):
             print(f"[EarlyStop] epoch={ep}, best_val_acc={best_metric:.4f}")
             break
 
     # -----------------------
-    # Final messages + W&B artifacts
+    # 9) Final messages + W&B artifacts
     # -----------------------
     print(f"[DONE] Last checkpoint saved to   {last_path}")
     wandb.save(last_path)

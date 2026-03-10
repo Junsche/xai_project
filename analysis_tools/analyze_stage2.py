@@ -8,17 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# 固定 augmentation 排序（对应：传统增强 → 自动增强 → 图像混合 → 风格与生成式）
-AUG_ORDER = [
-    "baseline",
-    "rotation_erasing",
-    "autoaugment",
-    "randaugment",
-    "mixup",
-    "cutmix",
-    "styleaug",
-    "diffusemix",
-]
+
 
 
 def summarize_dataset(df, dataset: str, out_dir: str):
@@ -33,6 +23,7 @@ def summarize_dataset(df, dataset: str, out_dir: str):
         "rotation_erasing",
         "autoaugment",
         "randaugment",
+        "augmix",
         "mixup",
         "cutmix",
         "styleaug",
@@ -43,6 +34,7 @@ def summarize_dataset(df, dataset: str, out_dir: str):
         "rotation_erasing": "rotation erasing",
         "autoaugment": "AutoAugment",
         "randaugment": "RandAugment",
+        "augmix": "AugMix", 
         "mixup": "Mixup",
         "cutmix": "CutMix",
         "styleaug": "StyleAug",
