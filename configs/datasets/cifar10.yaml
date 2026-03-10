@@ -1,0 +1,49 @@
+data:
+  name: "cifar10"
+  root: "./data/CIFAR-10"
+  cifar_c_root: "./data/CIFAR-10-C"
+
+  # Keep the same schema as MedMNIST datasets
+  aug: "baseline"
+  batch_size: 128
+  num_workers: 4
+
+  use_val_split: true
+  val_split_ratio: 0.1
+
+  img_size: 32
+  mean: [0.4914, 0.4822, 0.4465]
+  std:  [0.2470, 0.2435, 0.2616]
+
+  # Optional list of corruptions used for unified robustness evaluation in Stage-3
+  corruptions:
+    - brightness
+    - contrast
+    - defocus_blur
+    - elastic_transform
+    - fog
+    - frost
+    - gaussian_blur
+    - gaussian_noise
+    - glass_blur
+    - impulse_noise
+    - jpeg_compression
+    - motion_blur
+    - pixelate
+    - saturate
+    - shot_noise
+    - snow
+    - spatter
+    - speckle_noise
+    - zoom_blur
+  severities: [1, 2, 3, 4, 5]
+
+model:
+  num_classes: 10
+
+wandb:
+  group: "cifar10-resnet18"
+
+eval:
+  do_ece: true
+  do_bal_acc: false

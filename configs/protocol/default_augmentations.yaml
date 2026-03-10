@@ -1,0 +1,10 @@
+augmentations:
+  - baseline
+  - autoaugment
+  - randaugment
+  - augmix
+  - rotation_erasing
+  - mixup
+  - cutmix
+  - styleaug
+  - diffusemix

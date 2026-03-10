@@ -1,4 +1,3 @@
-# xai_data/medmnist_c.py
 # Load MedMNIST-C (Zenodo zip extracted) stored as per-corruption .npz files.
 
 from __future__ import annotations

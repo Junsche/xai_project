@@ -1,0 +1,4 @@
+cifar10: 0.01
+cifar100: 0.001
+dermamnist: 0.005
+pathmnist: 0.005

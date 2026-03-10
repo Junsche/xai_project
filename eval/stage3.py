@@ -2,14 +2,12 @@
 """
 Stage-3: Clean Test + Corruption Robustness Evaluation
 - CIFAR10/100: clean test + CIFAR-C
-- MedMNIST (DermaMNIST / PathMNIST): clean test + MedMNIST-C (Zenodo npz)
+- MedMNIST (DermaMNIST / PathMNIST): clean test + MedMNIST-C
 
-W&B logs:
-  eval/acc, eval/ece, eval/mce, eval/loss, eval/bal_acc
-  meta/corruption, meta/severity
-
-IMPORTANT:
-- No pretrained downloads in Stage-3 (weights='none'); we load Stage-2 checkpoint.
+Transition version:
+- transitioned from the earlier Stage-3 implementation into the new eval/stage3.py entry
+- adapted to the new config structure
+- Stage-3 metrics are logged as test/* instead of eval/*
 """
 
 import os
@@ -33,30 +31,14 @@ if ROOT not in sys.path:
 
 from models.factory import build_model
 from train.trainer import evaluate
-from xai_data.transforms_registry import REGISTRY
 from utils.seed import seed_everything
 
-# MedMNIST loaders (clean)
-from xai_data.medmnist import get_loaders as get_medmnist_loaders
-# MedMNIST-C loader (npz)
-from xai_data.medmnist_c import make_medmnist_c_loader
+from data_modules.medmnist import get_loaders as get_medmnist_loaders
+from data_modules.medmnist_c import make_medmnist_c_loader
 
+from eval.checkpointing import assert_stage2_ckpt_exists
 
-DEFAULT_AUGS = [
-    "baseline",
-    "autoaugment",
-    "randaugment",
-    "augmix",
-    "rotation_erasing",
-    "mixup",
-    "cutmix",
-    "styleaug",
-    "diffusemix",
-]
-
-WANDB_PROJECT = "stage3-robustness-v3.1"
 SEED = 1437
-CKPT_DIR = "./runs"
 
 
 # ============================================================
@@ -66,20 +48,32 @@ CKPT_DIR = "./runs"
 def load_yaml(path: str) -> dict:
     if not os.path.isfile(path):
         raise FileNotFoundError(f"YAML not found: {path}")
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if data is None:
+        raise ValueError(f"YAML is empty: {path}")
+    if not isinstance(data, dict):
+        raise TypeError(f"YAML must load as dict: {path}")
+    return data
+
 
 def load_dataset_cfg(dataset: str) -> dict:
     path = os.path.join(ROOT, "configs", "datasets", f"{dataset}.yaml")
     return load_yaml(path)
 
-def load_model_cfg(base_path: str) -> dict:
-    base = load_yaml(base_path)
-    model_cfg = dict(base.get("model", {}))
+
+def load_stage3_cfg(path: str) -> dict:
+    return load_yaml(path)
+
+
+def load_model_cfg(path: str) -> dict:
+    cfg = load_yaml(path)
+    model_cfg = dict(cfg.get("model", {}))
     if "name" not in model_cfg:
-        raise KeyError(f"`model.name` missing in {base_path}")
+        raise KeyError(f"`model.name` missing in {path}")
     model_cfg.setdefault("weights", "none")
     return model_cfg
+
 
 def _get_list(cfg: dict, key: str) -> Optional[List[Any]]:
     v = cfg.get(key, None)
@@ -89,33 +83,13 @@ def _get_list(cfg: dict, key: str) -> Optional[List[Any]]:
         return v
     raise TypeError(f"Expected list for {key}, got {type(v)}")
 
+
 def _as_tuple_floats(x, fallback: Tuple[float, ...]) -> Tuple[float, ...]:
     if x is None:
         return fallback
     if isinstance(x, (list, tuple)):
         return tuple(float(v) for v in x)
     return (float(x),)
-
-
-# ============================================================
-# Checkpoint path (must match Stage-2 naming)
-# ============================================================
-
-def stage2_lr_for(dataset: str) -> str:
-    if dataset == "cifar10":
-        return "0.01"
-    if dataset == "cifar100":
-        return "0.01"
-    if dataset in ["dermamnist", "pathmnist"]:
-        return "0.001"
-    raise ValueError(f"Unsupported dataset for lr mapping: {dataset}")
-
-def build_ckpt_path(dataset: str, aug: str, model_name: str) -> str:
-    lr = stage2_lr_for(dataset)
-    aug_token = "baseline" if aug in ["mixup", "cutmix"] else aug
-    exp_id = f"S2_{aug}"
-    run_name = f"{model_name}_{dataset}_{aug_token}_{exp_id}_lr{lr}_seed{SEED}"
-    return os.path.join(CKPT_DIR, f"{run_name}_last.pt")
 
 
 # ============================================================
@@ -127,6 +101,7 @@ def build_model_for_stage3(model_cfg: dict, num_classes: int, device: torch.devi
     cfg["weights"] = "none"
     model = build_model(cfg, num_classes).to(device)
     return model
+
 
 def load_ckpt(model, ckpt_path: str, device: torch.device):
     state = torch.load(ckpt_path, map_location=device)
@@ -140,6 +115,7 @@ def load_ckpt(model, ckpt_path: str, device: torch.device):
 
 def wandb_run(
     *,
+    project: str,
     dataset: str,
     aug: str,
     model_name: str,
@@ -162,7 +138,7 @@ def wandb_run(
         cfg.update(extra_config)
 
     wandb.init(
-        project=WANDB_PROJECT,
+        project=project,
         group=f"{dataset}_{aug}",
         name=f"{model_name}_{dataset}_{aug}_{corruption}_s{severity}",
         tags=tags or [dataset, aug, corruption, f"severity{severity}"],
@@ -172,7 +148,7 @@ def wandb_run(
 
 
 # ============================================================
-# Data loaders: CIFAR clean (use YAML mean/std/img_size)
+# Data loaders: CIFAR clean
 # ============================================================
 
 def make_clean_test_loader_cifar(dataset: str, data_cfg: dict) -> DataLoader:
@@ -185,9 +161,8 @@ def make_clean_test_loader_cifar(dataset: str, data_cfg: dict) -> DataLoader:
 
     img_size = int(data_cfg.get("img_size", 32))
     mean = _as_tuple_floats(data_cfg.get("mean"), (0.5, 0.5, 0.5))
-    std  = _as_tuple_floats(data_cfg.get("std"),  (0.5, 0.5, 0.5))
+    std = _as_tuple_floats(data_cfg.get("std"), (0.5, 0.5, 0.5))
 
-    # keep baseline eval tf: Resize (no-op for CIFAR) + Normalize
     tf = tvt.Compose([
         tvt.ToTensor(),
         tvt.Resize((img_size, img_size)),
@@ -205,15 +180,12 @@ def make_clean_test_loader_cifar(dataset: str, data_cfg: dict) -> DataLoader:
 
 
 # ============================================================
-# Data loaders: CIFAR-C (apply same Normalize as clean)
+# Data loaders: CIFAR-C
 # ============================================================
 
 def _normalize_batch_nchw(x: torch.Tensor, mean, std) -> torch.Tensor:
-    """
-     Normalize a batch tensor [N, C, H, W] with broadcasting.
-    """
     mean_t = torch.tensor(mean, dtype=x.dtype, device=x.device).view(1, -1, 1, 1)
-    std_t  = torch.tensor(std,  dtype=x.dtype, device=x.device).view(1, -1, 1, 1)
+    std_t = torch.tensor(std, dtype=x.dtype, device=x.device).view(1, -1, 1, 1)
     return (x - mean_t) / std_t
 
 
@@ -228,14 +200,13 @@ def make_cifar_c_loaders(
     loaders = {}
     root = os.path.abspath(root)
 
-    # CIFAR-C: each corruption .npy is concatenation of 5 severities (each 10k)
     for fname in os.listdir(root):
         if not fname.endswith(".npy") or fname == "labels.npy":
             continue
 
         cname = fname.replace(".npy", "")
-        x_all = np.load(os.path.join(root, fname))         # [50000,32,32,3] usually
-        y_all = np.load(os.path.join(root, "labels.npy"))  # can be [10000] or [50000]
+        x_all = np.load(os.path.join(root, fname))
+        y_all = np.load(os.path.join(root, "labels.npy"))
 
         y_all = np.asarray(y_all)
         y_len = int(y_all.shape[0])
@@ -244,20 +215,17 @@ def make_cifar_c_loaders(
         for s in range(5):
             xs = x_all[s * 10000:(s + 1) * 10000]
 
-            #  labels may be 10k (reused) or 50k (concatenated)
             if y_len == 10000:
                 ys = y_all
             else:
                 ys = y_all[s * 10000:(s + 1) * 10000]
 
-            # NHWC -> NCHW
             if xs.ndim == 4:
                 xs = xs.transpose(0, 3, 1, 2)
 
             xs = torch.from_numpy(xs).float() / 255.0
             ys = torch.from_numpy(np.asarray(ys)).long()
 
-            # Batch-safe Normalize using YAML mean/std
             xs = _normalize_batch_nchw(xs, mean, std)
 
             ds = TensorDataset(xs, ys)
@@ -273,7 +241,6 @@ def make_cifar_c_loaders(
         loaders[cname] = sev_loaders
 
     return loaders
-
 
 
 # ============================================================
@@ -292,21 +259,24 @@ def make_clean_test_loader_medmnist(dataset_cfg: dict) -> DataLoader:
 # Eval: Clean
 # ============================================================
 
-def eval_clean(dataset: str, aug: str, model_cfg: dict):
+def eval_clean(dataset: str, aug: str, model_cfg: dict, stage3_cfg: dict):
     dataset_cfg = load_dataset_cfg(dataset)
     data_cfg = dataset_cfg["data"]
-    eval_cfg = dataset_cfg.get("eval", {})
+    eval_cfg = stage3_cfg.get("eval", {})
 
     do_ece = bool(eval_cfg.get("do_ece", True))
-    do_bal_acc = bool(eval_cfg.get("do_bal_acc", False))
+    do_bal_acc = bool(dataset_cfg.get("eval", {}).get("do_bal_acc", False))
 
     seed_everything(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model_name = model_cfg["name"]
-    ckpt_path = build_ckpt_path(dataset, aug, model_name)
-    if not os.path.isfile(ckpt_path):
-        raise FileNotFoundError(f"[CLEAN] Checkpoint not found: {ckpt_path}")
+    ckpt_path = assert_stage2_ckpt_exists(
+        dataset=dataset,
+        aug=aug,
+        model_name=model_name,
+        seed=SEED,
+    )
 
     num_classes = int(dataset_cfg["model"]["num_classes"])
 
@@ -321,7 +291,7 @@ def eval_clean(dataset: str, aug: str, model_cfg: dict):
     load_ckpt(model, ckpt_path, device)
 
     wandb.init(
-        project=WANDB_PROJECT,
+        project=stage3_cfg["wandb"]["project"],
         group=f"{dataset}_{aug}",
         name=f"{model_name}_{dataset}_{aug}_clean",
         tags=[dataset, aug, "clean"],
@@ -337,18 +307,27 @@ def eval_clean(dataset: str, aug: str, model_cfg: dict):
         settings=wandb.Settings(code_dir="."),
     )
 
-    acc, ece, mce, bal_acc, loss = evaluate(model, loader, device, do_ece=do_ece, do_bal_acc=do_bal_acc)
+    acc, ece, mce, bal_acc, loss = evaluate(
+        model,
+        loader,
+        device,
+        do_ece=do_ece,
+        do_bal_acc=do_bal_acc,
+    )
 
-    log_dict = {
-        "eval/acc": acc,
-        "eval/ece": ece,
-        "eval/mce": mce,
-        "eval/loss": loss,
-        "eval/bal_acc": bal_acc,
+    wandb.log({
+        "test/acc": acc,
+        "test/ece": ece,
+        "test/mce": mce,
+        "test/loss": loss,
+        "test/bal_acc": bal_acc,
+        "meta/stage": "stage3",
+        "meta/dataset": dataset,
+        "meta/model": model_name,
+        "meta/augmentation": aug,
         "meta/corruption": "clean",
         "meta/severity": 0,
-    }
-    wandb.log(log_dict)
+    })
     wandb.finish()
 
 
@@ -356,13 +335,13 @@ def eval_clean(dataset: str, aug: str, model_cfg: dict):
 # Eval: CIFAR-C
 # ============================================================
 
-def eval_cifar_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[int]):
+def eval_cifar_c(dataset: str, aug: str, model_cfg: dict, stage3_cfg: dict, severity: Optional[int]):
     dataset_cfg = load_dataset_cfg(dataset)
     data_cfg = dataset_cfg["data"]
-    eval_cfg = dataset_cfg.get("eval", {})
+    eval_cfg = stage3_cfg.get("eval", {})
 
     do_ece = bool(eval_cfg.get("do_ece", True))
-    do_bal_acc = bool(eval_cfg.get("do_bal_acc", False))
+    do_bal_acc = bool(dataset_cfg.get("eval", {}).get("do_bal_acc", False))
 
     if severity is not None and not (1 <= severity <= 5):
         raise ValueError("--severity must be 1..5")
@@ -371,20 +350,24 @@ def eval_cifar_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[int
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model_name = model_cfg["name"]
-    ckpt_path = build_ckpt_path(dataset, aug, model_name)
-    if not os.path.isfile(ckpt_path):
-        raise FileNotFoundError(f"[CIFAR-C] Checkpoint not found: {ckpt_path}")
+    ckpt_path = assert_stage2_ckpt_exists(
+        dataset=dataset,
+        aug=aug,
+        model_name=model_name,
+        seed=SEED,
+    )
 
     num_classes = int(dataset_cfg["model"]["num_classes"])
     model = build_model_for_stage3(model_cfg, num_classes, device)
     load_ckpt(model, ckpt_path, device)
 
     mean = _as_tuple_floats(data_cfg.get("mean"), (0.5, 0.5, 0.5))
-    std  = _as_tuple_floats(data_cfg.get("std"),  (0.5, 0.5, 0.5))
+    std = _as_tuple_floats(data_cfg.get("std"), (0.5, 0.5, 0.5))
 
     loaders = make_cifar_c_loaders(
         data_cfg["cifar_c_root"],
-        mean=mean, std=std,
+        mean=mean,
+        std=std,
         batch_size=int(data_cfg.get("batch_size", 128)),
         num_workers=int(data_cfg.get("num_workers", 4)),
     )
@@ -403,6 +386,7 @@ def eval_cifar_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[int
                 continue
 
             wandb_run(
+                project=stage3_cfg["wandb"]["project"],
                 dataset=dataset,
                 aug=aug,
                 model_name=model_name,
@@ -412,14 +396,24 @@ def eval_cifar_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[int
                 tags=[dataset, aug, cname, f"severity{sev_idx}", "cifar-c"],
             )
 
-            acc, ece, mce, bal_acc, loss = evaluate(model, loader, device, do_ece=do_ece, do_bal_acc=do_bal_acc)
+            acc, ece, mce, bal_acc, loss = evaluate(
+                model,
+                loader,
+                device,
+                do_ece=do_ece,
+                do_bal_acc=do_bal_acc,
+            )
 
             wandb.log({
-                "eval/acc": acc,
-                "eval/ece": ece,
-                "eval/mce": mce,
-                "eval/loss": loss,
-                "eval/bal_acc": bal_acc,
+                "test/acc": acc,
+                "test/ece": ece,
+                "test/mce": mce,
+                "test/loss": loss,
+                "test/bal_acc": bal_acc,
+                "meta/stage": "stage3",
+                "meta/dataset": dataset,
+                "meta/model": model_name,
+                "meta/augmentation": aug,
                 "meta/corruption": cname,
                 "meta/severity": sev_idx,
             })
@@ -430,13 +424,13 @@ def eval_cifar_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[int
 # Eval: MedMNIST-C
 # ============================================================
 
-def eval_medmnist_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[int]):
+def eval_medmnist_c(dataset: str, aug: str, model_cfg: dict, stage3_cfg: dict, severity: Optional[int]):
     dataset_cfg = load_dataset_cfg(dataset)
     data_cfg = dataset_cfg["data"]
-    eval_cfg = dataset_cfg.get("eval", {})
+    eval_cfg = stage3_cfg.get("eval", {})
 
     do_ece = bool(eval_cfg.get("do_ece", True))
-    do_bal_acc = bool(eval_cfg.get("do_bal_acc", True))
+    do_bal_acc = bool(dataset_cfg.get("eval", {}).get("do_bal_acc", True))
 
     if severity is not None and not (1 <= severity <= 5):
         raise ValueError("--severity must be 1..5")
@@ -445,9 +439,12 @@ def eval_medmnist_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model_name = model_cfg["name"]
-    ckpt_path = build_ckpt_path(dataset, aug, model_name)
-    if not os.path.isfile(ckpt_path):
-        raise FileNotFoundError(f"[MedMNIST-C] Checkpoint not found: {ckpt_path}")
+    ckpt_path = assert_stage2_ckpt_exists(
+        dataset=dataset,
+        aug=aug,
+        model_name=model_name,
+        seed=SEED,
+    )
 
     num_classes = int(dataset_cfg["model"]["num_classes"])
     model = build_model_for_stage3(model_cfg, num_classes, device)
@@ -456,7 +453,7 @@ def eval_medmnist_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[
     c_root = data_cfg["medmnist_c_root"]
     img_size = int(data_cfg.get("img_size", 28))
     mean = _as_tuple_floats(data_cfg.get("mean"), (0.5, 0.5, 0.5))
-    std  = _as_tuple_floats(data_cfg.get("std"),  (0.5, 0.5, 0.5))
+    std = _as_tuple_floats(data_cfg.get("std"), (0.5, 0.5, 0.5))
 
     corruptions = data_cfg.get("corruptions", None)
     if corruptions is None:
@@ -482,6 +479,7 @@ def eval_medmnist_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[
             )
 
             wandb_run(
+                project=stage3_cfg["wandb"]["project"],
                 dataset=dataset,
                 aug=aug,
                 model_name=model_name,
@@ -491,14 +489,24 @@ def eval_medmnist_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[
                 tags=[dataset, aug, cname, f"severity{sev_idx}", "medmnist-c"],
             )
 
-            acc, ece, mce, bal_acc, loss = evaluate(model, loader, device, do_ece=do_ece, do_bal_acc=do_bal_acc)
+            acc, ece, mce, bal_acc, loss = evaluate(
+                model,
+                loader,
+                device,
+                do_ece=do_ece,
+                do_bal_acc=do_bal_acc,
+            )
 
             wandb.log({
-                "eval/acc": acc,
-                "eval/ece": ece,
-                "eval/mce": mce,
-                "eval/loss": loss,
-                "eval/bal_acc": bal_acc,
+                "test/acc": acc,
+                "test/ece": ece,
+                "test/mce": mce,
+                "test/loss": loss,
+                "test/bal_acc": bal_acc,
+                "meta/stage": "stage3",
+                "meta/dataset": dataset,
+                "meta/model": model_name,
+                "meta/augmentation": aug,
                 "meta/corruption": cname,
                 "meta/severity": sev_idx,
             })
@@ -512,31 +520,36 @@ def eval_medmnist_c(dataset: str, aug: str, model_cfg: dict, severity: Optional[
 def main():
     parser = argparse.ArgumentParser(description="Stage-3 evaluation on clean + corruption benchmarks")
     parser.add_argument("dataset", choices=["cifar10", "cifar100", "dermamnist", "pathmnist"])
-    parser.add_argument("aug", nargs="?", default=None)
+    parser.add_argument("aug", help="single augmentation token passed from runner")
     parser.add_argument("--severity", type=int, default=None)
-    parser.add_argument("--base", type=str, default=os.path.join(ROOT, "configs", "_base.yaml"))
+    parser.add_argument(
+        "--base",
+        type=str,
+        default=os.path.join(ROOT, "configs", "base", "stage3.yaml"),
+    )
+    parser.add_argument(
+        "--model-cfg",
+        type=str,
+        default=os.path.join(ROOT, "configs", "models", "resnet18.yaml"),
+    )
     args = parser.parse_args()
 
     dataset = args.dataset.lower()
-    aug = args.aug.lower() if args.aug is not None else None
+    aug = args.aug.lower()
 
-    model_cfg = load_model_cfg(args.base)
-    if model_cfg["name"].lower() != "resnet18":
-        raise ValueError("Stage-3 currently expects resnet18 checkpoints.")
+    stage3_cfg = load_stage3_cfg(args.base)
+    model_cfg = load_model_cfg(args.model_cfg)
 
     def run_one(a: str):
         print(f"[STAGE-3] dataset={dataset}, aug={a}")
-        eval_clean(dataset, a, model_cfg)
+        eval_clean(dataset, a, model_cfg, stage3_cfg)
         if dataset in ["cifar10", "cifar100"]:
-            eval_cifar_c(dataset, a, model_cfg, args.severity)
+            eval_cifar_c(dataset, a, model_cfg, stage3_cfg, args.severity)
         else:
-            eval_medmnist_c(dataset, a, model_cfg, args.severity)
+            eval_medmnist_c(dataset, a, model_cfg, stage3_cfg, args.severity)
 
-    if aug is None:
-        for a in DEFAULT_AUGS:
-            run_one(a)
-    else:
-        run_one(aug)
+    run_one(aug)
+
 
 if __name__ == "__main__":
     main()

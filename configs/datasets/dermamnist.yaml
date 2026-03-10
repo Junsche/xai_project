@@ -1,0 +1,42 @@
+data:
+  name: "dermamnist"
+  root: "./data/medmnist"
+  medmnist_c_root: "./data/medmnist_c"
+
+  # required by xai_data/medmnist.py
+  aug: "baseline"
+
+  batch_size: 128
+  num_workers: 4
+  use_val_split: false
+  val_split_ratio: 0.0
+
+  img_size: 28
+  mean: [0.5, 0.5, 0.5]
+  std:  [0.5, 0.5, 0.5]
+
+  # optional, but used for unified Stage3 filtering
+  corruptions:
+    # - gaussian_noise
+    # - shot_noise
+    # - impulse_noise
+    - defocus_blur
+    - motion_blur
+    # - zoom_blur
+    - brightness_up
+    - brightness_down
+    - contrast_up
+    - contrast_down
+    - jpeg_compression
+    - pixelate
+  severities: [1, 2, 3, 4, 5]
+
+model:
+  num_classes: 7
+
+wandb:
+  group: "dermamnist-resnet18"
+
+eval:
+  do_ece: true
+  do_bal_acc: true

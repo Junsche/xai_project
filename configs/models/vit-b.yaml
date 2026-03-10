@@ -1,0 +1,3 @@
+model:
+  name: "vit_b"
+  weights: "imagenet1k_v1"

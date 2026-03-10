@@ -1,0 +1,48 @@
+data:
+  name: "cifar100"
+  root: "./data/CIFAR-100"
+  cifar_c_root: "./data/CIFAR-100-C"
+
+  aug: "baseline"
+  batch_size: 128
+  num_workers: 4
+
+  use_val_split: true
+  val_split_ratio: 0.1
+
+  img_size: 32
+  # NOTE: your screenshot uses CIFAR-10 stats here; consider using CIFAR-100 stats if you want strict correctness.
+  mean: [0.4914, 0.4822, 0.4465]
+  std:  [0.2470, 0.2435, 0.2616]
+
+  corruptions:
+    - brightness
+    - contrast
+    - defocus_blur
+    - elastic_transform
+    - fog
+    - frost
+    - gaussian_blur
+    - gaussian_noise
+    - glass_blur
+    - impulse_noise
+    - jpeg_compression
+    - motion_blur
+    - pixelate
+    - saturate
+    - shot_noise
+    - snow
+    - spatter
+    - speckle_noise
+    - zoom_blur
+  severities: [1, 2, 3, 4, 5]
+
+model:
+  num_classes: 100
+
+wandb:
+  group: "cifar100-resnet18"
+
+eval:
+  do_ece: true
+  do_bal_acc: false

@@ -1,0 +1,36 @@
+seed: 1437
+device: "cuda"
+
+data:
+  batch_size: 128
+  num_workers: 4
+  use_val_split: true
+  val_split_ratio: 0.1
+
+train:
+  epochs: 20
+  lr: 0.1
+  optimizer: "sgd"
+  momentum: 0.9
+  weight_decay: 5e-4
+  exp_id: "C1"
+
+early_stopping:
+  enabled: true
+  monitor: "val_acc"
+  mode: "max"
+  patience: 5
+  min_delta: 0.001
+
+log:
+  out_dir: "./runs"
+
+eval:
+  do_ece: true
+  do_cifar_c: false
+  mce_normalize_by: "baseline"
+
+wandb:
+  project: "stage1-lr-grid-v4"
+  group: "TBD"
+  tags: ["stage1", "sgd", "bs128", "epochs20", "seed1437"]

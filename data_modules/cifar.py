@@ -1,4 +1,3 @@
-# xai_data/cifar.py
 # Purpose: Load CIFAR-10/100 and build train/eval loaders from cfg.
 # - If use_val_split=True: split train into train/val and use val as eval.
 # - If use_val_split=False: use official test set as eval (Stage-2 behavior).

@@ -1,4 +1,3 @@
-# xai_data/transforms_registry.py
 # Purpose: Register image-level transforms and select by key from configs.
 
 from __future__ import annotations
@@ -115,14 +114,12 @@ def rotation_erasing(
 # 5) StyleAug / DiffuseMix
 # -------------------------
 def styleaug(img_size: int = 32, mean: MeanStd = MEAN, std: MeanStd = STD):
-    # Implemented in xai_data/generative/styleaug_impl.py
-    from xai_data.generative.styleaug_impl import build_styleaug_transforms
+    from augmentations.generative import build_styleaug_transforms
     return build_styleaug_transforms(img_size=img_size, mean=mean, std=std)
 
 
 def diffusemix(img_size: int = 32, mean: MeanStd = MEAN, std: MeanStd = STD):
-    # Implemented in xai_data/generative/diffusemix_impl.py
-    from xai_data.generative.diffusemix_impl import build_diffusemix_transforms
+    from augmentations.generative import build_diffusemix_transforms
     return build_diffusemix_transforms(img_size=img_size, mean=mean, std=std)
 
 

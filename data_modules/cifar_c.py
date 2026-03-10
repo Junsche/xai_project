@@ -1,4 +1,3 @@
-# xai_data/cifar_c.py
 # Purpose: Load CIFAR-C .npy files and build evaluation DataLoaders
 #          for corruption × severity robustness evaluation.
 

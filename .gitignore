@@ -11,37 +11,42 @@ build/
 # --- IDE & Editors ---
 .vscode/
 .idea/
+*.swp
 
 # --- Virtual Envs ---
 .venv/
 env/
 venv/
-*.swp
 
 # --- Jupyter & Checkpoints ---
 .ipynb_checkpoints/
-
-# --- Data & Outputs ---
-data/
-datasets/
-runs/
-wandb/
-*.ckpt
-*.pt
-*.pth
-*.tar
-*.gz
 
 # --- OS Files ---
 .DS_Store
 Thumbs.db
 
-# --- analysis outputs (generated) ---
+# --- Runtime / Training Outputs ---
+runs/
+wandb/
+*.ckpt
+*.pt
+*.pth
+
+# --- Archived / packaged artifacts ---
+*.tar
+*.gz
+
+# --- Real data directory (dataset storage) ---
+data/
+
+# --- Generated analysis outputs ---
 analysis/*.csv
+analysis/*.tex
 analysis/plots_stage2/
 analysis/plots_stage3/
+analysis/tables/
+figures_generated/
 
-# common generated artifacts
-*.png
-*.csv
-*.tex
+# --- Optional caches ---
+.pytest_cache/
+.mypy_cache/

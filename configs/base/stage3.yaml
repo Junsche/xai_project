@@ -1,0 +1,14 @@
+seed: 1437
+device: "cuda"
+
+eval:
+  do_ece: true
+  do_bal_acc: false
+
+log:
+  out_dir: "./runs"
+
+wandb:
+  project: "stage3-robustness-v4"
+  group: "TBD"
+  tags: ["stage3", "robustness"]
