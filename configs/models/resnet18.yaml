@@ -1,3 +1,5 @@
 model:
   name: "resnet18"
   weights: "imagenet1k_v1"
+  input_size: 32
+  preprocessing: "cifar"

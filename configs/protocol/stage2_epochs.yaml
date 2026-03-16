@@ -1,0 +1,11 @@
+resnet18:
+  cifar10: 100
+  cifar100: 100
+  dermamnist: 50
+  pathmnist: 50
+
+vit_b:
+  cifar10: 30
+  cifar100: 30
+  dermamnist: 30
+  pathmnist: 30

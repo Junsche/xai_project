@@ -1,0 +1,5 @@
+model:
+  name: "vit_b"
+  weights: "imagenet1k_v1"
+  input_size: 224
+  preprocessing: "imagenet"

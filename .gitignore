@@ -1,52 +1,94 @@
-# --- Python & Build ---
+# =========================================================
+# Python / build
+# =========================================================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.egg-info/
-dist/
 build/
-*.log
+dist/
 
-# --- IDE & Editors ---
+# =========================================================
+# IDE / editor
+# =========================================================
 .vscode/
 .idea/
 *.swp
 
-# --- Virtual Envs ---
+# =========================================================
+# Virtual environments
+# =========================================================
 .venv/
 env/
 venv/
 
-# --- Jupyter & Checkpoints ---
+# =========================================================
+# Jupyter
+# =========================================================
 .ipynb_checkpoints/
 
-# --- OS Files ---
+# =========================================================
+# OS files
+# =========================================================
 .DS_Store
 Thumbs.db
 
-# --- Runtime / Training Outputs ---
+# =========================================================
+# Training artifacts / runtime outputs
+# =========================================================
 runs/
 wandb/
 *.ckpt
 *.pt
 *.pth
 
-# --- Archived / packaged artifacts ---
+# =========================================================
+# Logs
+# =========================================================
+logs/
+logs_*.txt
+*.log
+
+# =========================================================
+# Archives / packaged artifacts
+# =========================================================
 *.tar
 *.gz
+*.zip
 
-# --- Real data directory (dataset storage) ---
+# =========================================================
+# Dataset storage
+# =========================================================
 data/
 
-# --- Generated analysis outputs ---
-analysis/*.csv
-analysis/*.tex
+# =========================================================
+# Analysis project artifacts inside xai_project/analysis
+# (keep code, ignore generated outputs and raw exports)
+# =========================================================
+analysis/data/raw/
+analysis/data/archives/
+analysis/stage1/outputs/
+analysis/stage2/outputs/
+analysis/stage3/outputs/
+analysis/summary/outputs/
+analysis/assets/generated/
+analysis/figures_generated/
 analysis/plots_stage2/
 analysis/plots_stage3/
 analysis/tables/
-figures_generated/
 
-# --- Optional caches ---
+# Optional generated tabular/text artifacts
+analysis/**/*.csv
+analysis/**/*.tex
+analysis/**/*.png
+analysis/**/*.pdf
+
+# But keep source code in analysis/
+!analysis/**/*.py
+
+# =========================================================
+# Testing / caches
+# =========================================================
 .pytest_cache/
 .mypy_cache/

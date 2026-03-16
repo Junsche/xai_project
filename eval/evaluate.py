@@ -1,10 +1,10 @@
-# eval/evaluate.py
-# 中文说明：提供两个常用评估入口——
-# (1) 干净集(eval loader)的 Accuracy/ECE；
-# (2) CIFAR-C 的 per-corruption 错误率与 mCE。
-# English: Two entry-points —
-# (1) clean split (eval loader) Accuracy/ECE;
-# (2) CIFAR-C per-corruption errors + mCE.
+# NOTE:
+# This module is kept as a legacy / compatibility evaluation helper.
+# The current main experiment pipeline uses:
+# - train/trainer.py for Stage-1 / Stage-2 evaluation
+# - eval/stage3.py for Stage-3 robustness evaluation
+#
+# This file is retained mainly for older CIFAR-C helper logic and reference purposes.
 
 from __future__ import annotations
 import os

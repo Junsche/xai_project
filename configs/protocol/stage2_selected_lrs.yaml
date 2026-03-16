@@ -1,4 +1,11 @@
-cifar10: 0.01
-cifar100: 0.001
-dermamnist: 0.005
-pathmnist: 0.005
+resnet18:
+  cifar10: 0.01
+  cifar100: 0.001
+  dermamnist: 0.005
+  pathmnist: 0.001
+
+vit_b:
+  cifar10: 0.0005
+  cifar100: 0.0005
+  dermamnist: 0.001
+  pathmnist: 0.001
